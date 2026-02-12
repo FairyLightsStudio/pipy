@@ -6,7 +6,7 @@ on:
       - '*'
 
 permissions:
-  contents: read
+  contents: write # 需要权限创建 Release
 
 env:
   IMAGE: flomesh/pipy
@@ -19,733 +19,324 @@ defaults:
 
 jobs:
   set-release-version:
-    name: set-release-version
+    name: Set Version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set RELEASE_VERSION
         id: version
         run: |
-          pwd
-          ls -l
           CI_COMMIT_DATE=$(date +%Y%m%d%H%M)
           echo "CI_COMMIT_DATE=${CI_COMMIT_DATE}" >> $GITHUB_ENV
           git fetch --tags
           RELEASE_VERSION=`git name-rev --tags --name-only $(git rev-parse HEAD)`
-          if [ $RELEASE_VERSION = 'undefined' ]
-          then
+          if [ $RELEASE_VERSION = 'undefined' ]; then
               echo "release_version=nightly-${CI_COMMIT_DATE}" >> $GITHUB_OUTPUT
-              echo "version=nightly" >> $GITHUB_OUTPUT
-              echo "commit_date=${CI_COMMIT_DATE}" >> $GITHUB_OUTPUT
           else
               echo "release_version=${RELEASE_VERSION}" >> $GITHUB_OUTPUT
-              echo "commit_date=${CI_COMMIT_DATE}" >> $GITHUB_OUTPUT
           fi
-
-      - name: Show envs
-        run: export
     outputs:
       release_version: ${{steps.version.outputs.release_version}}
-      commit_date: ${{steps.version.outputs.commit_date}}
 
-  x86-binary:
+  build-core:
+    name: Core ${{ matrix.os }} ${{ matrix.arch }}
     needs: set-release-version
-    name: x86-binary
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+            setup: ""
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+            setup: ""
+          - os: macos-13
+            arch: x86_64
+            setup: "export CC=$(brew --prefix llvm@15)/bin/clang; export CXX=$(brew --prefix llvm@15)/bin/clang++"
+          - os: macos-latest
+            arch: aarch64
+            setup: "export CC=$(brew --prefix llvm@15)/bin/clang; export CXX=$(brew --prefix llvm@15)/bin/clang++"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Show envs
-        run: export
-
       - name: Build
         id: build
         env:
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
         run: |
-          set -x
+          ${{ matrix.setup }}
           ./build.sh -p -t ${RELEASE_VERSION}
-          ls -l
-          echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
-          echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
+          # 输出文件名供后续步骤使用
+          echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz | head -n 1)" >> $GITHUB_OUTPUT
 
-      - name: Setup s3cmd
-        run: |
-          sudo apt-get install -y s3cmd
-          cat > $HOME/.s3cfg << EOF
-          bucket_location = ${{ secrets.S3_REGION }}
-          host_base = ${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}
-          host_bucket = %(bucket)s.${{ secrets.S3_GLOBAL_ACC_HOST_BASE}}
-          access_key = ${{ secrets.S3_ACCESS_KEY }}
-          secret_key = ${{ secrets.S3_SECRET_KEY }}
-          EOF
-
-      - name: Upload artifacts
+      - name: Upload to S3
+        if: ${{ secrets.S3_ACCESS_KEY != '' }}
         env:
+          ARTIFACT: ${{ steps.build.outputs.artifact_name }}
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
         run: |
-          if [[ "$RELEASE_VERSION" == "nightly"* ]]
-          then
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}-nightly/$(uname -m)/binary/${{steps.build.outputs.artifact_name}}
-          else
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}/$(uname -m)/binary/${{steps.build.outputs.artifact_name}}
-          fi
+          sudo apt-get install -y s3cmd || brew install s3cmd
+          printf "[default]\naccess_key = %s\nsecret_key = %s\nhost_base = %s\nhost_bucket = %%(bucket)s.%s\n" \
+          "${{ secrets.S3_ACCESS_KEY }}" "${{ secrets.S3_SECRET_KEY }}" \
+          "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" > ~/.s3cfg
+          
+          TARGET_PATH="${S3_PATH}/$(uname -m)/binary/${ARTIFACT}"
+          [[ "$RELEASE_VERSION" == "nightly"* ]] && TARGET_PATH="${S3_PATH}-nightly/$(uname -m)/binary/${ARTIFACT}"
+          
+          s3cmd put ${ARTIFACT} s3://${{ secrets.S3_BUCKET }}/${TARGET_PATH}
 
-      - name: Upload artifact to workflow
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{steps.build.outputs.artifact_name}}
-          path: ${{steps.build.outputs.artifact_name}}
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: ${{ steps.build.outputs.artifact_name }}
 
-    outputs:
-      artifact_name: ${{steps.build.outputs.artifact_name}}
-      arch: ${{steps.build.outputs.arch}}
-
-  x86-alpine-docker:
+  # 2. Docker 构建任务
+  build-docker:
+    name: Docker ${{ matrix.arch }}
     needs: set-release-version
-    name: x86-alpine-docker
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Show envs
-        run: export
-
-      - name: Build image
+      - uses: docker/setup-buildx-action@v3
+      - name: Build Image
         id: build
         env:
           DOCKER_BUILDKIT: 1
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
         run: |
           ./build.sh -ncp -t ${RELEASE_VERSION}
-          ls -l
-          echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
-          echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
+          echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz | head -n 1)" >> $GITHUB_OUTPUT
 
-      - name: Setup s3cmd
+      - name: Upload to S3
+        if: ${{ secrets.S3_ACCESS_KEY != '' }}
+        env:
+          ARTIFACT: ${{ steps.build.outputs.artifact_name }}
+          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
         run: |
           sudo apt-get install -y s3cmd
-          cat > $HOME/.s3cfg << EOF
-          bucket_location = ${{ secrets.S3_REGION }}
-          host_base = ${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}
-          host_bucket = %(bucket)s.${{ secrets.S3_GLOBAL_ACC_HOST_BASE}}
-          access_key = ${{ secrets.S3_ACCESS_KEY }}
-          secret_key = ${{ secrets.S3_SECRET_KEY }}
-          EOF
+          printf "[default]\naccess_key = %s\nsecret_key = %s\nhost_base = %s\nhost_bucket = %%(bucket)s.%s\n" \
+          "${{ secrets.S3_ACCESS_KEY }}" "${{ secrets.S3_SECRET_KEY }}" \
+          "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" > ~/.s3cfg
+          
+          FOLDER="${S3_PATH}"
+          [[ "$RELEASE_VERSION" == "nightly"* ]] && FOLDER="${S3_PATH}-nightly"
+          s3cmd put ${ARTIFACT} s3://${{ secrets.S3_BUCKET }}/${FOLDER}/$(uname -m)/image/${ARTIFACT}
 
-      - name: Upload artifacts
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          if [[ "$RELEASE_VERSION" == "nightly"* ]]
-          then
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}-nightly/$(uname -m)/image/${{steps.build.outputs.artifact_name}}
-          else
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}/$(uname -m)/image/${{steps.build.outputs.artifact_name}}
-          fi
-
-    outputs:
-      artifact_name: ${{steps.build.outputs.artifact_name}}
-      arch: ${{steps.build.outputs.arch}}
-
-  aarch64-binary:
-    needs: set-release-version
-    name: aarch64-binary
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Show envs
-        run: export
-
-      - name: Build
-        id: build
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          ./build.sh -p -t ${RELEASE_VERSION}
-          ls -l
-          echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
-          echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
-
-      - name: Setup s3cmd
-        run: |
-          sudo apt-get install -y s3cmd
-          cat > $HOME/.s3cfg << EOF
-          bucket_location = ${{ secrets.S3_REGION }}
-          host_base = ${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}
-          host_bucket = %(bucket)s.${{ secrets.S3_GLOBAL_ACC_HOST_BASE}}
-          access_key = ${{ secrets.S3_ACCESS_KEY }}
-          secret_key = ${{ secrets.S3_SECRET_KEY }}
-          EOF
-
-      - name: Upload artifacts
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          if [[ "$RELEASE_VERSION" == "nightly"* ]]
-          then
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}-nightly/$(uname -m)/binary/${{steps.build.outputs.artifact_name}}
-          else
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}/$(uname -m)/binary/${{steps.build.outputs.artifact_name}}
-          fi
-
-      - name: Upload artifact to workflow
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{steps.build.outputs.artifact_name}}
-          path: ${{steps.build.outputs.artifact_name}}
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: ${{ steps.build.outputs.artifact_name }}
 
-    outputs:
-      artifact_name: ${{steps.build.outputs.artifact_name}}
-      arch: ${{steps.build.outputs.arch}}
-
-  aarch64-alpine-docker:
+  # 3. Android 和 RPM 构建任务
+  build-special:
+    name: ${{ matrix.type }}
     needs: set-release-version
-    name: aarch64-alpine-docker
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Show envs
-        run: export
-
-      - name: Build image
-        id: build
-        env:
-          DOCKER_BUILDKIT: 1
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          ./build.sh -ncp -t ${RELEASE_VERSION}
-          ls -l
-          echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
-          echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
-
-      - name: Setup s3cmd
-        run: |
-          sudo apt-get install -y s3cmd
-          cat > $HOME/.s3cfg << EOF
-          bucket_location = ${{ secrets.S3_REGION }}
-          host_base = ${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}
-          host_bucket = %(bucket)s.${{ secrets.S3_GLOBAL_ACC_HOST_BASE}}
-          access_key = ${{ secrets.S3_ACCESS_KEY }}
-          secret_key = ${{ secrets.S3_SECRET_KEY }}
-          EOF
-
-      - name: Upload artifacts
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          if [[ "$RELEASE_VERSION" == "nightly"* ]]
-          then 
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}-nightly/$(uname -m)/image/${{steps.build.outputs.artifact_name}}
-          else
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}/$(uname -m)/image/${{steps.build.outputs.artifact_name}}
-          fi
-
-    outputs:
-      artifact_name: ${{steps.build.outputs.artifact_name}}
-      arch: ${{steps.build.outputs.arch}}
-
-  x86-rpm:
-    needs: set-release-version
-    name: x86-rpm
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        type: [android, rpm]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Show envs
-        run: export
-
-      - name: Build rpm
-        id: build
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          ./build.sh -nr -t ${RELEASE_VERSION}
-          ls -l
-          echo "artifact_name=$(cd rpm; ls *.rpm)" >> $GITHUB_OUTPUT
-          echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
-
-      - name: Setup s3cmd
-        run: |
-          sudo apt-get install -y s3cmd
-          cat > $HOME/.s3cfg << EOF
-          bucket_location = ${{ secrets.S3_REGION }}
-          host_base = ${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}
-          host_bucket = %(bucket)s.${{ secrets.S3_GLOBAL_ACC_HOST_BASE}}
-          access_key = ${{ secrets.S3_ACCESS_KEY }}
-          secret_key = ${{ secrets.S3_SECRET_KEY }}
-          EOF
-
-      - name: Upload artifacts
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          TARGET_FILE_NAME=`echo ${{steps.build.outputs.artifact_name}} | sed 's/.el7./-el7-/g'`
-          if [[ "$RELEASE_VERSION" == "nightly"* ]]
-          then
-            s3cmd put rpm/${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}-nightly/$(uname -m)/rpm/${TARGET_FILE_NAME}
-          else
-            s3cmd put rpm/${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}/$(uname -m)/rpm/${TARGET_FILE_NAME}
-          fi
-
-      - name: Upload artifact to workflow
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{steps.build.outputs.artifact_name}}
-          path: rpm/${{steps.build.outputs.artifact_name}}
-
-    outputs:
-      artifact_name: ${{steps.build.outputs.artifact_name}}
-      arch: ${{steps.build.outputs.arch}}
-
-  x86-macos:
-    needs: set-release-version
-    name: x86-macos
-    runs-on: macos-13
-    if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Show envs
-        run: export
-
-      - name: Build
-        id: build
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          set -x
-          export CC=$(brew --prefix llvm@15)/bin/clang
-          export CXX=$(brew --prefix llvm@15)/bin/clang++
-          ./build.sh -p -t ${RELEASE_VERSION}
-          ls -l
-          echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
-          echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
-
-      - name: Setup s3cmd
-        run: |
-          brew install s3cmd
-          cat > $HOME/.s3cfg << EOF
-          bucket_location = ${{ secrets.S3_REGION }}
-          host_base = ${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}
-          host_bucket = %(bucket)s.${{ secrets.S3_GLOBAL_ACC_HOST_BASE}}
-          access_key = ${{ secrets.S3_ACCESS_KEY }}
-          secret_key = ${{ secrets.S3_SECRET_KEY }}
-          EOF
-
-      - name: Upload artifacts
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          if [[ "$RELEASE_VERSION" == "nightly"* ]]
-          then
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}-nightly/$(uname -m)/binary/${{steps.build.outputs.artifact_name}}
-          else
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}/$(uname -m)/binary/${{steps.build.outputs.artifact_name}}
-          fi
-
-      - name: Upload artifact to workflow
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{steps.build.outputs.artifact_name}}
-          path: ${{steps.build.outputs.artifact_name}}
-
-    outputs:
-      artifact_name: ${{steps.build.outputs.artifact_name}}
-      arch: ${{steps.build.outputs.arch}}
-
-  aarch64-macos:
-    needs: set-release-version
-    name: aarch64-macos
-    runs-on: macos-latest
-    if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Show envs
-        run: export
-
-      - name: Build
-        id: build
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          set -x
-          export CC=$(brew --prefix llvm@15)/bin/clang
-          export CXX=$(brew --prefix llvm@15)/bin/clang++
-          ./build.sh -p -t ${RELEASE_VERSION}
-          ls -l
-          echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
-          echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
-
-      - name: Setup s3cmd
-        run: |
-          brew install s3cmd
-          cat > $HOME/.s3cfg << EOF
-          bucket_location = ${{ secrets.S3_REGION }}
-          host_base = ${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}
-          host_bucket = %(bucket)s.${{ secrets.S3_GLOBAL_ACC_HOST_BASE}}
-          access_key = ${{ secrets.S3_ACCESS_KEY }}
-          secret_key = ${{ secrets.S3_SECRET_KEY }}
-          EOF
-
-      - name: Upload artifacts
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          if [[ "$RELEASE_VERSION" == "nightly"* ]]
-          then
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}-nightly/aarch64/binary/${{steps.build.outputs.artifact_name}}
-          else
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}/aarch64/binary/${{steps.build.outputs.artifact_name}}
-          fi
-
-      - name: Upload artifact to workflow
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{steps.build.outputs.artifact_name}}
-          path: ${{steps.build.outputs.artifact_name}}
-
-    outputs:
-      artifact_name: ${{steps.build.outputs.artifact_name}}
-      arch: ${{steps.build.outputs.arch}}
-
-  android:
-    needs: set-release-version
-    name: android
-    runs-on: ubuntu-latest
-    if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - uses: nttld/setup-ndk@v1
+      
+      # Android 环境准备
+      - if: matrix.type == 'android'
+        uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - if: matrix.type == 'android'
+        uses: nttld/setup-ndk@v1
         id: setup-ndk
-        with:
-          ndk-version: r26c
-
-      - uses: seanmiddleditch/gha-setup-ninja@v4
-        id: setup-ninja
-        with:
-          version: 1.11.1
-
-      - name: Show envs
-        run: export
-
+        with: { ndk-version: r26c }
+      - if: matrix.type == 'android'
+        uses: seanmiddleditch/gha-setup-ninja@v4
+      
       - name: Build
         id: build
         env:
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-          NDK: "${{ steps.setup-ndk.outputs.ndk-path }}"
+          NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          set -x
-          ./build.sh -nap
-          ls -al
-          echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
-          echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
-
-      - name: Setup s3cmd
-        run: |
-          sudo apt-get install -y s3cmd
-          cat > $HOME/.s3cfg << EOF
-          bucket_location = ${{ secrets.S3_REGION }}
-          host_base = ${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}
-          host_bucket = %(bucket)s.${{ secrets.S3_GLOBAL_ACC_HOST_BASE}}
-          access_key = ${{ secrets.S3_ACCESS_KEY }}
-          secret_key = ${{ secrets.S3_SECRET_KEY }}
-          EOF
-
-      - name: Upload artifacts
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          if [[ "$RELEASE_VERSION" == "nightly"* ]]
-          then
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}-nightly/arm64-v8a/binary/${{steps.build.outputs.artifact_name}}
+          if [ "${{ matrix.type }}" == "android" ]; then
+            ./build.sh -nap
+            echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz | head -n 1)" >> $GITHUB_OUTPUT
+            echo "s3_subfolder=arm64-v8a/binary" >> $GITHUB_OUTPUT
           else
-            s3cmd put ${{steps.build.outputs.artifact_name}} s3://${{ secrets.S3_BUCKET }}/${S3_PATH}/arm64-v8a/binary/${{steps.build.outputs.artifact_name}}
+            ./build.sh -nr -t ${RELEASE_VERSION}
+            echo "artifact_name=$(cd rpm; ls *.rpm | head -n 1)" >> $GITHUB_OUTPUT
+            echo "s3_subfolder=$(uname -m)/rpm" >> $GITHUB_OUTPUT
+            echo "is_rpm=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload artifact to workflow
-        uses: actions/upload-artifact@v4
+      - name: Upload to S3
+        if: ${{ secrets.S3_ACCESS_KEY != '' }}
+        env:
+          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          ARTIFACT: ${{ steps.build.outputs.artifact_name }}
+          SUBFOLDER: ${{ steps.build.outputs.s3_subfolder }}
+        run: |
+          sudo apt-get install -y s3cmd
+          printf "[default]\naccess_key = %s\nsecret_key = %s\nhost_base = %s\nhost_bucket = %%(bucket)s.%s\n" \
+          "${{ secrets.S3_ACCESS_KEY }}" "${{ secrets.S3_SECRET_KEY }}" \
+          "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" > ~/.s3cfg
+          
+          FILE_PATH=${ARTIFACT}
+          TARGET_NAME=${ARTIFACT}
+          [[ "${{ steps.build.outputs.is_rpm }}" == "true" ]] && FILE_PATH="rpm/${ARTIFACT}" && TARGET_NAME=$(echo ${ARTIFACT} | sed 's/.el7./-el7-/g')
+          
+          FOLDER="${S3_PATH}"
+          [[ "$RELEASE_VERSION" == "nightly"* ]] && FOLDER="${S3_PATH}-nightly"
+          s3cmd put ${FILE_PATH} s3://${{ secrets.S3_BUCKET }}/${FOLDER}/${SUBFOLDER}/${TARGET_NAME}
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{steps.build.outputs.artifact_name}}
-          path: ${{steps.build.outputs.artifact_name}}
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: ${{ steps.build.outputs.is_rpm == 'true' && format('rpm/{0}', steps.build.outputs.artifact_name) || steps.build.outputs.artifact_name }}
 
-    outputs:
-      artifact_name: ${{steps.build.outputs.artifact_name}}
-      arch: ${{steps.build.outputs.arch}}
-
-  x86-binary-gui:
+  build-with-gui:
+    name: GUI ${{ matrix.os }} ${{ matrix.arch }}
     needs: set-release-version
-    name: x86-binary-gui
-    runs-on: ubuntu-24.04
     if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
-    permissions:
-      contents: read
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+            setup: "sudo apt-get update"
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+            setup: ""
+          - os: macos-13
+            arch: x86_64
+            setup: "export CC=$(brew --prefix llvm@15)/bin/clang; export CXX=$(brew --prefix llvm@15)/bin/clang++"
+          - os: macos-latest
+            arch: aarch64
+            setup: "export CC=$(brew --prefix llvm@15)/bin/clang; export CXX=$(brew --prefix llvm@15)/bin/clang++"
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Build
-        id: build
+        with: { node-version: 20 }
+      - name: Build GUI
         env:
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
           PKG_NAME: pipy-gui
         run: |
-          set -x
+          ${{ matrix.setup }}
           ./build.sh -gp -t ${RELEASE_VERSION}
-          ls -l
-          echo "artifact_name=$(ls pipy-gui-${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
-
-      - name: Upload artifact to workflow
-        uses: actions/upload-artifact@v4
+          # 确保只取到一个文件名
+          echo "artifact_name=$(ls pipy-gui-${RELEASE_VERSION}*.tar.gz | head -n 1)" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{steps.build.outputs.artifact_name}}
-          path: ${{steps.build.outputs.artifact_name}}
+          name: ${{ env.artifact_name }} # 注意：这里使用 env.artifact_name 因为它是在 run 中设置的 output
+          path: ${{ env.artifact_name }}
 
-    outputs:
-      artifact_name: ${{steps.build.outputs.artifact_name}}
-
-  aarch64-binary-gui:
-    needs: set-release-version
-    name: aarch64-binary-gui
-    runs-on: ubuntu-24.04-arm
-    if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Build
-        id: build
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-          PKG_NAME: pipy-gui
-        run: |
-          ./build.sh -gp -t ${RELEASE_VERSION}
-          ls -l
-          echo "artifact_name=$(ls pipy-gui-${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
-
-      - name: Upload artifact to workflow
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{steps.build.outputs.artifact_name}}
-          path: ${{steps.build.outputs.artifact_name}}
-
-    outputs:
-      artifact_name: ${{steps.build.outputs.artifact_name}}
-
-  x86-macos-gui:
-    needs: set-release-version
-    name: x86-macos-gui
-    runs-on: macos-13
-    if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Build
-        id: build
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-          PKG_NAME: pipy-gui
-        run: |
-          set -x
-          export CC=$(brew --prefix llvm@15)/bin/clang
-          export CXX=$(brew --prefix llvm@15)/bin/clang++
-          ./build.sh -gp -t ${RELEASE_VERSION}
-          ls -l
-          echo "artifact_name=$(ls pipy-gui-${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
-
-      - name: Upload artifact to workflow
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{steps.build.outputs.artifact_name}}
-          path: ${{steps.build.outputs.artifact_name}}
-
-    outputs:
-      artifact_name: ${{steps.build.outputs.artifact_name}}
-
-  aarch64-macos-gui:
-    needs: set-release-version
-    name: aarch64-macos-gui
-    runs-on: macos-latest
-    if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Build
-        id: build
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-          PKG_NAME: pipy-gui
-        run: |
-          set -x
-          export CC=$(brew --prefix llvm@15)/bin/clang
-          export CXX=$(brew --prefix llvm@15)/bin/clang++
-          ./build.sh -gp -t ${RELEASE_VERSION}
-          ls -l
-          echo "artifact_name=$(ls pipy-gui-${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
-
-      - name: Upload artifact to workflow
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{steps.build.outputs.artifact_name}}
-          path: ${{steps.build.outputs.artifact_name}}
-
-    outputs:
-      artifact_name: ${{steps.build.outputs.artifact_name}}
-
+  # 5. 创建 Release (核心修改部分)
   create-release:
-    name: create release
+    name: Create Release
     runs-on: ubuntu-latest
     if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
-    permissions:
-      contents: write
-    needs:
-      - set-release-version
-      - x86-binary
-      - aarch64-binary
-      - x86-alpine-docker
-      - aarch64-alpine-docker
-      - x86-rpm
-      - x86-macos
-      - aarch64-macos
-      - android
-      - x86-binary-gui
-      - aarch64-binary-gui
-      - x86-macos-gui
-      - aarch64-macos-gui
+    needs: [set-release-version, build-core, build-docker, build-with-gui, build-special]
     steps:
-      - name: Download artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-      - name: Check downloads
-        run: |
-          ls -alR
+      # - name: Generate Release Table and Body
+      #   env:
+      #     REPO: ${{ github.repository }}
+      #     TAG: ${{ needs.set-release-version.outputs.release_version }}
+      #   run: |
+      #     # 定义下载链接的基础前缀
+      #     BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
-      - name: Generate release body
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-          X86_BINARY: ${{ needs.x86-binary.outputs.artifact_name }}
-          AARCH64_BINARY: ${{ needs.aarch64-binary.outputs.artifact_name }}
-          X86_MACOS: ${{ needs.x86-macos.outputs.artifact_name }}
-          AARCH64_MACOS: ${{ needs.aarch64-macos.outputs.artifact_name }}
-          X86_RPM: ${{ needs.x86-rpm.outputs.artifact_name }}
-          ANDROID: ${{ needs.android.outputs.artifact_name }}
-          X86_BINARY_GUI: ${{ needs.x86-binary-gui.outputs.artifact_name }}
-          AARCH64_BINARY_GUI: ${{ needs.aarch64-binary-gui.outputs.artifact_name }}
-          X86_MACOS_GUI: ${{ needs.x86-macos-gui.outputs.artifact_name }}
-          AARCH64_MACOS_GUI: ${{ needs.aarch64-macos-gui.outputs.artifact_name }}
-        run: |
-          REPO="${{ github.repository }}"
-          TAG="${RELEASE_VERSION}"
-          BASE="https://github.com/${REPO}/releases/download/${TAG}"
-          cat > release_body.md << EOF
-          **Download based on your OS:**
+      #     # 辅助函数：在 artifacts 目录中查找符合关键字的文件名
+      #     # 参数 $1: 必须包含的字符串 (例如 x86_64)
+      #     # 参数 $2: (可选) 必须排除的字符串 (例如 gui)
+      #     find_file() {
+      #       if [ -z "$2" ]; then
+      #         find artifacts -name "*$1*" -type f -exec basename {} \; | head -n 1
+      #       else
+      #         find artifacts -name "*$1*" ! -name "*$2*" -type f -exec basename {} \; | head -n 1
+      #       fi
+      #     }
 
-          | OS | Arch | Download | Download (with GUI) |
-          |---|---|---|---|
-          | 🐧 Linux | x86_64 | [${X86_BINARY}](${BASE}/${X86_BINARY}) | [${X86_BINARY_GUI}](${BASE}/${X86_BINARY_GUI}) |
-          | 🐧 Linux | aarch64 | [${AARCH64_BINARY}](${BASE}/${AARCH64_BINARY}) | [${AARCH64_BINARY_GUI}](${BASE}/${AARCH64_BINARY_GUI}) |
-          | 🍎 macOS | x86_64 | [${X86_MACOS}](${BASE}/${X86_MACOS}) | [${X86_MACOS_GUI}](${BASE}/${X86_MACOS_GUI}) |
-          | 🍎 macOS | aarch64 | [${AARCH64_MACOS}](${BASE}/${AARCH64_MACOS}) | [${AARCH64_MACOS_GUI}](${BASE}/${AARCH64_MACOS_GUI}) |
-          | 🐧 Linux (RPM) | x86_64 | [${X86_RPM}](${BASE}/${X86_RPM}) | - |
-          | 🤖 Android | arm64-v8a | [${ANDROID}](${BASE}/${ANDROID}) | - |
-          EOF
-          cat release_body.md
+      #     # 动态查找文件名
+      #     X86_BINARY=$(find_file "x86_64.tar.gz" "gui")
+      #     AARCH64_BINARY=$(find_file "aarch64.tar.gz" "gui")
+          
+      #     # MacOS 的文件名通常不包含 OS 名字，或者包含 darwin，根据原逻辑推断：
+      #     # 原逻辑 x86-macos 产出的就是 tar.gz。为了区分 Linux，我们需要依赖 artifacts 的目录结构或者文件名差异。
+      #     # 假设 artifacts/文件名/文件名 (download-artifact 默认行为)
+      #     # 这里为了稳健，直接全盘搜索。如果文件名相同，则需要依靠 artifact name (即文件夹名) 区分。
+      #     # 简化起见，假设文件名里包含架构信息。
+          
+      #     # 修正策略：由于文件名可能重复 (linux 和 mac 可能产生同名文件?)，
+      #     # 最好打印一下看看结构，但这里我们先按照惯例假设文件名包含 os 信息。
+      #     # 如果文件名完全一样，下面的逻辑可能需要调整为搜索特定路径。
+          
+      #     # 假设 build.sh 生成的文件名包含 pipy-version-os-arch.tar.gz
+      #     # 如果没有区分 OS，则需要更精细的 find，比如 find artifacts/pipy-*-linux-x86...
+          
+      #     # 重新定义查找逻辑，更加宽容，只要找到对应文件即可：
+      #     X86_RPM=$(find_file ".rpm")
+      #     ANDROID=$(find_file "android" "gui") # 或者根据后缀
+      #     if [ -z "$ANDROID" ]; then ANDROID=$(find_file "arm64-v8a"); fi
+
+      #     X86_BINARY_GUI=$(find_file "gui" "x86_64")
+      #     AARCH64_BINARY_GUI=$(find_file "gui" "aarch64")
+
+      #     # 重新查找 MacOS (通常在 build.sh 中会带上 darwin 或 macos)
+      #     # 如果文件名里不带 OS，我们可能无法区分 Linux 和 Mac 的包。
+      #     # 鉴于原脚本直接上传 binary，假设名字是有区分度的。
+      #     X86_MACOS=$(find_file "darwin" "x86_64")
+      #     if [ -z "$X86_MACOS" ]; then X86_MACOS=$X86_BINARY; fi # Fallback if specific mac name not found
+          
+      #     AARCH64_MACOS=$(find_file "darwin" "aarch64")
+      #      if [ -z "$AARCH64_MACOS" ]; then AARCH64_MACOS=$AARCH64_BINARY; fi
+
+      #     # 生成 Markdown 表格
+      #     cat > release_body.md << EOF
+      #     **Download based on your OS:**
+
+      #     | OS | Arch | Download | Download (with GUI) |
+      #     |---|---|---|---|
+      #     | 🐧 Linux | x86_64 | [${X86_BINARY}](${BASE}/${X86_BINARY}) | [${X86_BINARY_GUI}](${BASE}/${X86_BINARY_GUI}) |
+      #     | 🐧 Linux | aarch64 | [${AARCH64_BINARY}](${BASE}/${AARCH64_BINARY}) | [${AARCH64_BINARY_GUI}](${BASE}/${AARCH64_BINARY_GUI}) |
+      #     | 🍎 macOS | x86_64 | [${X86_MACOS}](${BASE}/${X86_MACOS}) | [${X86_MACOS_GUI}](${BASE}/${X86_MACOS_GUI}) |
+      #     | 🍎 macOS | aarch64 | [${AARCH64_MACOS}](${BASE}/${AARCH64_MACOS}) | [${AARCH64_MACOS_GUI}](${BASE}/${AARCH64_MACOS_GUI}) |
+      #     | 🐧 Linux (RPM) | x86_64 | [${X86_RPM}](${BASE}/${X86_RPM}) | - |
+      #     | 🤖 Android | arm64-v8a | [${ANDROID}](${BASE}/${ANDROID}) | - |
+      #     EOF
+          
+      #     echo "Generated Body:"
+      #     cat release_body.md
 
       - name: Create draft release
-        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          body_path: release_body.md
-          files: |
-            ${{ needs.x86-binary.outputs.artifact_name }}/${{ needs.x86-binary.outputs.artifact_name }}
-            ${{ needs.x86-rpm.outputs.artifact_name }}/${{ needs.x86-rpm.outputs.artifact_name }}
-            ${{ needs.x86-macos.outputs.artifact_name }}/${{ needs.x86-macos.outputs.artifact_name }}
-            ${{ needs.aarch64-binary.outputs.artifact_name }}/${{ needs.aarch64-binary.outputs.artifact_name }}
-            ${{ needs.aarch64-macos.outputs.artifact_name }}/${{ needs.aarch64-macos.outputs.artifact_name }}
-            ${{ needs.android.outputs.artifact_name }}/${{ needs.android.outputs.artifact_name }}
-            ${{ needs.x86-binary-gui.outputs.artifact_name }}/${{ needs.x86-binary-gui.outputs.artifact_name }}
-            ${{ needs.aarch64-binary-gui.outputs.artifact_name }}/${{ needs.aarch64-binary-gui.outputs.artifact_name }}
-            ${{ needs.x86-macos-gui.outputs.artifact_name }}/${{ needs.x86-macos-gui.outputs.artifact_name }}
-            ${{ needs.aarch64-macos-gui.outputs.artifact_name }}/${{ needs.aarch64-macos-gui.outputs.artifact_name }}
+          # body_path: release_body.md
+          # 这里的 **/* 会递归上传 artifacts 目录下所有文件
+          files: artifacts/**/*
 
   save-log:
-    name: save log
+    if: ${{ always() && !contains(join(needs.*.result, ','), 'failure') }}
+    needs: [set-release-version, build-core, build-docker, build-gui, build-special, create-release]
     runs-on: ubuntu-latest
-    needs:
-      - set-release-version
-      - x86-binary
-      - aarch64-binary
-      - x86-alpine-docker
-      - aarch64-alpine-docker
-      - x86-rpm
-      - x86-macos
-      - aarch64-macos
-      - android
-      - x86-binary-gui
-      - aarch64-binary-gui
-      - x86-macos-gui
-      - aarch64-macos-gui
-      - create-release
-    if: ${{ always() && !contains(join(needs.*.result, ','), 'failure') && !contains(needs.x86-binary.result, 'cancelled')}}
     steps:
       - name: Save log
+        if: ${{ secrets.REPO_DISPATCH_PAT != '' }}
         uses: peter-evans/repository-dispatch@v3
         with:
-          token:  ${{ secrets.REPO_DISPATCH_PAT }}
+          token: ${{ secrets.REPO_DISPATCH_PAT }}
           repository: ${{ secrets.REPO_FOR_LOG }}
           event-type: save-log
-          client-payload: |
-            {
-               "github": ${{toJSON(github)}},
-               "release_version": "${{needs.set-release-version.outputs.release_version}}",
-               "artifacts": [
-                 { "type": "rpm", "arch": "${{needs.x86-rpm.outputs.arch}}", "name": "${{ needs.x86-rpm.outputs.artifact_name }}" },
-                 { "type": "binary", "arch": "${{needs.x86-binary.outputs.arch}}", "name": "${{ needs.x86-binary.outputs.artifact_name }}" },
-                 { "type": "binary", "arch": "${{needs.aarch64-binary.outputs.arch}}", "name": "${{ needs.aarch64-binary.outputs.artifact_name }}" },
-                 { "type": "binary", "arch": "${{needs.x86-macos.outputs.arch}}", "name": "${{ needs.x86-macos.outputs.artifact_name }}" },
-                 { "type": "binary", "arch": "${{needs.aarch64-macos.outputs.arch}}", "name": "${{ needs.aarch64-macos.outputs.artifact_name }}" },
-                 { "type": "binary", "arch": "${{needs.android.outputs.arch}}", "name": "${{ needs.android.outputs.artifact_name }}" },
-                 { "type": "image", "arch": "${{needs.x86-alpine-docker.outputs.arch}}", "name": "${{ needs.x86-alpine-docker.outputs.artifact_name }}" },
-                 { "type": "image", "arch": "${{needs.aarch64-alpine-docker.outputs.arch}}", "name": "${{ needs.aarch64-alpine-docker.outputs.artifact_name }}" },
-                 { "type": "linux-gui", "arch": "x86_64", "name": "${{ needs.x86-binary-gui.outputs.artifact_name }}" },
-                 { "type": "linux-gui", "arch": "aarch64", "name": "${{ needs.aarch64-binary-gui.outputs.artifact_name }}" },
-                 { "type": "macos-gui", "arch": "x86_64", "name": "${{ needs.x86-macos-gui.outputs.artifact_name }}" },
-                 { "type": "macos-gui", "arch": "aarch64", "name": "${{ needs.aarch64-macos-gui.outputs.artifact_name }}" }
-               ]
-            }
+          client-payload: '{"github": ${{toJSON(github)}}, "release_version": "${{needs.set-release-version.outputs.release_version}}"}'
