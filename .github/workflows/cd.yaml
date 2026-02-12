@@ -71,10 +71,12 @@ jobs:
           echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz | head -n 1)" >> $GITHUB_OUTPUT
 
       - name: Upload to S3
-        if: ${{ secrets.S3_ACCESS_KEY != '' }}
         env:
+          S3_KEY: ${{ secrets.S3_ACCESS_KEY }}
           ARTIFACT: ${{ steps.build.outputs.artifact_name }}
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+        if: ${{ env.S3_KEY != '' }}
+
         run: |
           sudo apt-get install -y s3cmd || brew install s3cmd
           printf "[default]\naccess_key = %s\nsecret_key = %s\nhost_base = %s\nhost_bucket = %%(bucket)s.%s\n" \
@@ -116,8 +118,9 @@ jobs:
           echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz | head -n 1)" >> $GITHUB_OUTPUT
 
       - name: Upload to S3
-        if: ${{ secrets.S3_ACCESS_KEY != '' }}
+        if: ${{ env.S3_KEY != '' }}
         env:
+          S3_KEY: ${{ secrets.S3_ACCESS_KEY }}
           ARTIFACT: ${{ steps.build.outputs.artifact_name }}
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
         run: |
@@ -175,8 +178,9 @@ jobs:
           fi
 
       - name: Upload to S3
-        if: ${{ secrets.S3_ACCESS_KEY != '' }}
+        if: ${{ env.S3_KEY != '' }}
         env:
+          S3_KEY: ${{ secrets.S3_ACCESS_KEY }}
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
           ARTIFACT: ${{ steps.build.outputs.artifact_name }}
           SUBFOLDER: ${{ steps.build.outputs.s3_subfolder }}
