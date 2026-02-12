@@ -735,9 +735,9 @@ jobs:
                  { "type": "binary", "arch": "${{needs.android.outputs.arch}}", "name": "${{ needs.android.outputs.artifact_name }}" },
                  { "type": "image", "arch": "${{needs.x86-alpine-docker.outputs.arch}}", "name": "${{ needs.x86-alpine-docker.outputs.artifact_name }}" },
                  { "type": "image", "arch": "${{needs.aarch64-alpine-docker.outputs.arch}}", "name": "${{ needs.aarch64-alpine-docker.outputs.artifact_name }}" },
-                 { "type": "binary-gui", "arch": "x86_64", "name": "${{ needs.x86-binary-gui.outputs.artifact_name }}" },
-                 { "type": "binary-gui", "arch": "aarch64", "name": "${{ needs.aarch64-binary-gui.outputs.artifact_name }}" },
-                 { "type": "binary-gui", "arch": "x86_64", "name": "${{ needs.x86-macos-gui.outputs.artifact_name }}" },
-                 { "type": "binary-gui", "arch": "aarch64", "name": "${{ needs.aarch64-macos-gui.outputs.artifact_name }}" }
+                 { "type": "linux-gui", "arch": "x86_64", "name": "${{ needs.x86-binary-gui.outputs.artifact_name }}" },
+                 { "type": "linux-gui", "arch": "aarch64", "name": "${{ needs.aarch64-binary-gui.outputs.artifact_name }}" },
+                 { "type": "macos-gui", "arch": "x86_64", "name": "${{ needs.x86-macos-gui.outputs.artifact_name }}" },
+                 { "type": "macos-gui", "arch": "aarch64", "name": "${{ needs.aarch64-macos-gui.outputs.artifact_name }}" }
                ]
             }
