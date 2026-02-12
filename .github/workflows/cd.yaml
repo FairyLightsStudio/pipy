@@ -329,7 +329,7 @@ jobs:
 
   save-log:
     if: ${{ always() && !contains(join(needs.*.result, ','), 'failure') }}
-    needs: [set-release-version, build-core, build-docker, build-gui, build-special, create-release]
+    needs: [set-release-version, build-core, build-docker, build-with-gui, build-special, create-release]
     runs-on: ubuntu-latest
     steps:
       - name: Save log
