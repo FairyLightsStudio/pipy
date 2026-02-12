@@ -337,7 +337,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Save log
-        if: ${{ secrets.REPO_DISPATCH_PAT != '' }}
+        if: ${{ env.REPO_DISPATCH_PAT != '' }}
+        env:
+          REPO_DISPATCH_PAT: ${{ secrets.REPO_DISPATCH_PAT }}
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.REPO_DISPATCH_PAT }}
