@@ -490,6 +490,137 @@ jobs:
       artifact_name: ${{steps.build.outputs.artifact_name}}
       arch: ${{steps.build.outputs.arch}}
 
+  x86-binary-gui:
+    needs: set-release-version
+    name: x86-binary-gui
+    runs-on: ubuntu-24.04
+    if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build
+        id: build
+        env:
+          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          PKG_NAME: pipy-gui
+        run: |
+          set -x
+          ./build.sh -gp -t ${RELEASE_VERSION}
+          ls -l
+          echo "artifact_name=$(ls pipy-gui-${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact to workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{steps.build.outputs.artifact_name}}
+          path: ${{steps.build.outputs.artifact_name}}
+
+    outputs:
+      artifact_name: ${{steps.build.outputs.artifact_name}}
+
+  aarch64-binary-gui:
+    needs: set-release-version
+    name: aarch64-binary-gui
+    runs-on: ubuntu-24.04-arm
+    if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build
+        id: build
+        env:
+          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          PKG_NAME: pipy-gui
+        run: |
+          ./build.sh -gp -t ${RELEASE_VERSION}
+          ls -l
+          echo "artifact_name=$(ls pipy-gui-${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact to workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{steps.build.outputs.artifact_name}}
+          path: ${{steps.build.outputs.artifact_name}}
+
+    outputs:
+      artifact_name: ${{steps.build.outputs.artifact_name}}
+
+  x86-macos-gui:
+    needs: set-release-version
+    name: x86-macos-gui
+    runs-on: macos-13
+    if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build
+        id: build
+        env:
+          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          PKG_NAME: pipy-gui
+        run: |
+          set -x
+          export CC=$(brew --prefix llvm@15)/bin/clang
+          export CXX=$(brew --prefix llvm@15)/bin/clang++
+          ./build.sh -gp -t ${RELEASE_VERSION}
+          ls -l
+          echo "artifact_name=$(ls pipy-gui-${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact to workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{steps.build.outputs.artifact_name}}
+          path: ${{steps.build.outputs.artifact_name}}
+
+    outputs:
+      artifact_name: ${{steps.build.outputs.artifact_name}}
+
+  aarch64-macos-gui:
+    needs: set-release-version
+    name: aarch64-macos-gui
+    runs-on: macos-latest
+    if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build
+        id: build
+        env:
+          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          PKG_NAME: pipy-gui
+        run: |
+          set -x
+          export CC=$(brew --prefix llvm@15)/bin/clang
+          export CXX=$(brew --prefix llvm@15)/bin/clang++
+          ./build.sh -gp -t ${RELEASE_VERSION}
+          ls -l
+          echo "artifact_name=$(ls pipy-gui-${RELEASE_VERSION}*.tar.gz)" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact to workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{steps.build.outputs.artifact_name}}
+          path: ${{steps.build.outputs.artifact_name}}
+
+    outputs:
+      artifact_name: ${{steps.build.outputs.artifact_name}}
+
   create-release:
     name: create release
     runs-on: ubuntu-latest
@@ -504,6 +635,10 @@ jobs:
       - x86-macos
       - aarch64-macos
       - android
+      - x86-binary-gui
+      - aarch64-binary-gui
+      - x86-macos-gui
+      - aarch64-macos-gui
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -512,11 +647,43 @@ jobs:
         run: |
           ls -alR
 
+      - name: Generate release body
+        env:
+          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          X86_BINARY: ${{ needs.x86-binary.outputs.artifact_name }}
+          AARCH64_BINARY: ${{ needs.aarch64-binary.outputs.artifact_name }}
+          X86_MACOS: ${{ needs.x86-macos.outputs.artifact_name }}
+          AARCH64_MACOS: ${{ needs.aarch64-macos.outputs.artifact_name }}
+          X86_RPM: ${{ needs.x86-rpm.outputs.artifact_name }}
+          ANDROID: ${{ needs.android.outputs.artifact_name }}
+          X86_BINARY_GUI: ${{ needs.x86-binary-gui.outputs.artifact_name }}
+          AARCH64_BINARY_GUI: ${{ needs.aarch64-binary-gui.outputs.artifact_name }}
+          X86_MACOS_GUI: ${{ needs.x86-macos-gui.outputs.artifact_name }}
+          AARCH64_MACOS_GUI: ${{ needs.aarch64-macos-gui.outputs.artifact_name }}
+        run: |
+          REPO="${{ github.repository }}"
+          TAG="${RELEASE_VERSION}"
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
+          cat > release_body.md << EOF
+          **Download based on your OS:**
+
+          | OS | Arch | Download | Download (with GUI) |
+          |---|---|---|---|
+          | 🐧 Linux | x86_64 | [${X86_BINARY}](${BASE}/${X86_BINARY}) | [${X86_BINARY_GUI}](${BASE}/${X86_BINARY_GUI}) |
+          | 🐧 Linux | aarch64 | [${AARCH64_BINARY}](${BASE}/${AARCH64_BINARY}) | [${AARCH64_BINARY_GUI}](${BASE}/${AARCH64_BINARY_GUI}) |
+          | 🍎 macOS | x86_64 | [${X86_MACOS}](${BASE}/${X86_MACOS}) | [${X86_MACOS_GUI}](${BASE}/${X86_MACOS_GUI}) |
+          | 🍎 macOS | aarch64 | [${AARCH64_MACOS}](${BASE}/${AARCH64_MACOS}) | [${AARCH64_MACOS_GUI}](${BASE}/${AARCH64_MACOS_GUI}) |
+          | 🐧 Linux (RPM) | x86_64 | [${X86_RPM}](${BASE}/${X86_RPM}) | - |
+          | 🤖 Android | arm64-v8a | [${ANDROID}](${BASE}/${ANDROID}) | - |
+          EOF
+          cat release_body.md
+
       - name: Create draft release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
+          body_path: release_body.md
           files: |
             ${{ needs.x86-binary.outputs.artifact_name }}/${{ needs.x86-binary.outputs.artifact_name }}
             ${{ needs.x86-rpm.outputs.artifact_name }}/${{ needs.x86-rpm.outputs.artifact_name }}
@@ -524,6 +691,10 @@ jobs:
             ${{ needs.aarch64-binary.outputs.artifact_name }}/${{ needs.aarch64-binary.outputs.artifact_name }}
             ${{ needs.aarch64-macos.outputs.artifact_name }}/${{ needs.aarch64-macos.outputs.artifact_name }}
             ${{ needs.android.outputs.artifact_name }}/${{ needs.android.outputs.artifact_name }}
+            ${{ needs.x86-binary-gui.outputs.artifact_name }}/${{ needs.x86-binary-gui.outputs.artifact_name }}
+            ${{ needs.aarch64-binary-gui.outputs.artifact_name }}/${{ needs.aarch64-binary-gui.outputs.artifact_name }}
+            ${{ needs.x86-macos-gui.outputs.artifact_name }}/${{ needs.x86-macos-gui.outputs.artifact_name }}
+            ${{ needs.aarch64-macos-gui.outputs.artifact_name }}/${{ needs.aarch64-macos-gui.outputs.artifact_name }}
 
   save-log:
     name: save log
@@ -538,6 +709,10 @@ jobs:
       - x86-macos
       - aarch64-macos
       - android
+      - x86-binary-gui
+      - aarch64-binary-gui
+      - x86-macos-gui
+      - aarch64-macos-gui
       - create-release
     if: ${{ always() && !contains(join(needs.*.result, ','), 'failure') && !contains(needs.x86-binary.result, 'cancelled')}}
     steps:
@@ -559,6 +734,10 @@ jobs:
                  { "type": "binary", "arch": "${{needs.aarch64-macos.outputs.arch}}", "name": "${{ needs.aarch64-macos.outputs.artifact_name }}" },
                  { "type": "binary", "arch": "${{needs.android.outputs.arch}}", "name": "${{ needs.android.outputs.artifact_name }}" },
                  { "type": "image", "arch": "${{needs.x86-alpine-docker.outputs.arch}}", "name": "${{ needs.x86-alpine-docker.outputs.artifact_name }}" },
-                 { "type": "image", "arch": "${{needs.aarch64-alpine-docker.outputs.arch}}", "name": "${{ needs.aarch64-alpine-docker.outputs.artifact_name }}" }
+                 { "type": "image", "arch": "${{needs.aarch64-alpine-docker.outputs.arch}}", "name": "${{ needs.aarch64-alpine-docker.outputs.artifact_name }}" },
+                 { "type": "binary-gui", "arch": "x86_64", "name": "${{ needs.x86-binary-gui.outputs.artifact_name }}" },
+                 { "type": "binary-gui", "arch": "aarch64", "name": "${{ needs.aarch64-binary-gui.outputs.artifact_name }}" },
+                 { "type": "binary-gui", "arch": "x86_64", "name": "${{ needs.x86-macos-gui.outputs.artifact_name }}" },
+                 { "type": "binary-gui", "arch": "aarch64", "name": "${{ needs.aarch64-macos-gui.outputs.artifact_name }}" }
                ]
             }
