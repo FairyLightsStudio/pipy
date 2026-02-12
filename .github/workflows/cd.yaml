@@ -5,6 +5,9 @@ on:
     tags:
       - '*'
 
+permissions:
+  contents: read
+
 env:
   IMAGE: flomesh/pipy
   PKG_NAME: pipy
@@ -628,6 +631,8 @@ jobs:
     name: create release
     runs-on: ubuntu-latest
     if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
+    permissions:
+      contents: write
     needs:
       - set-release-version
       - x86-binary
