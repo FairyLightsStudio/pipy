@@ -28,7 +28,7 @@ jobs:
         run: |
           CI_COMMIT_DATE=$(date +%Y%m%d%H%M)
           echo "CI_COMMIT_DATE=${CI_COMMIT_DATE}" >> $GITHUB_ENV
-          git fetch --tags
+          git fetch --tags --force
           RELEASE_VERSION=`git name-rev --tags --name-only $(git rev-parse HEAD)`
           if [ $RELEASE_VERSION = 'undefined' ]; then
               echo "release_version=nightly-${CI_COMMIT_DATE}" >> $GITHUB_OUTPUT
