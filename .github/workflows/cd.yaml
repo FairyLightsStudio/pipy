@@ -330,7 +330,6 @@ jobs:
           X86_RPM=$(find_file ".rpm" "")
           ANDROID=$(find_file "android" "")
 
-          # 生成表格
           cat > release_body.md << EOF
           **Download based on your OS:**
 
