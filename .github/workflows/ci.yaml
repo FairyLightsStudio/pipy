@@ -71,6 +71,9 @@ jobs:
           echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
 
       - name: Setup s3cmd
+        if: ${{ env.S3_ACCESS_KEY != '' }}
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
         run: |
           sudo apt-get install -y s3cmd
           cat > $HOME/.s3cfg << EOF
@@ -82,8 +85,10 @@ jobs:
           EOF
 
       - name: Upload artifacts
+        if: ${{ env.S3_ACCESS_KEY != '' }}
         env:
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
         run: |
           if [[ "$RELEASE_VERSION" == "nightly"* ]]
           then
@@ -121,6 +126,9 @@ jobs:
           echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
 
       - name: Setup s3cmd
+        if: ${{ env.S3_ACCESS_KEY != '' }}
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
         run: |
           sudo apt-get install -y s3cmd
           cat > $HOME/.s3cfg << EOF
@@ -132,8 +140,10 @@ jobs:
           EOF
 
       - name: Upload artifacts
+        if: ${{ env.S3_ACCESS_KEY != '' }}
         env:
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
         run: |
           if [[ "$RELEASE_VERSION" == "nightly"* ]]
           then
@@ -167,6 +177,9 @@ jobs:
           echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
 
       - name: Setup s3cmd
+        if: ${{ env.S3_ACCESS_KEY != '' }}
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
         run: |
           sudo apt-get install -y s3cmd
           cat > $HOME/.s3cfg << EOF
@@ -178,8 +191,10 @@ jobs:
           EOF
 
       - name: Upload artifacts
+        if: ${{ env.S3_ACCESS_KEY != '' }}
         env:
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
         run: |
           if [[ "$RELEASE_VERSION" == "nightly"* ]]
           then
@@ -217,6 +232,9 @@ jobs:
           echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
 
       - name: Setup s3cmd
+        if: ${{ env.S3_ACCESS_KEY != '' }}
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
         run: |
           sudo apt-get install -y s3cmd
           cat > $HOME/.s3cfg << EOF
@@ -228,8 +246,10 @@ jobs:
           EOF
 
       - name: Upload artifacts
+        if: ${{ env.S3_ACCESS_KEY != '' }}
         env:
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
         run: |
           if [[ "$RELEASE_VERSION" == "nightly"* ]]
           then 
@@ -263,6 +283,9 @@ jobs:
           echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
 
       - name: Setup s3cmd
+        if: ${{ env.S3_ACCESS_KEY != '' }}
+        env:
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
         run: |
           sudo apt-get install -y s3cmd
           cat > $HOME/.s3cfg << EOF
@@ -274,8 +297,10 @@ jobs:
           EOF
 
       - name: Upload artifacts
+        if: ${{ env.S3_ACCESS_KEY != '' }}
         env:
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
         run: |
           TARGET_FILE_NAME=`echo ${{steps.build.outputs.artifact_name}} | sed 's/.el7./-el7-/g'`
           if [[ "$RELEASE_VERSION" == "nightly"* ]]
