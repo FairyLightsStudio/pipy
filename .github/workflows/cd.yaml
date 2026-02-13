@@ -70,24 +70,6 @@ jobs:
           # 输出文件名供后续步骤使用
           echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz | head -n 1)" >> $GITHUB_OUTPUT
 
-      - name: Upload to S3
-        env:
-          S3_KEY: ${{ secrets.S3_ACCESS_KEY }}
-          ARTIFACT: ${{ steps.build.outputs.artifact_name }}
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        if: ${{ env.S3_KEY != '' }}
-
-        run: |
-          sudo apt-get install -y s3cmd || brew install s3cmd
-          printf "[default]\naccess_key = %s\nsecret_key = %s\nhost_base = %s\nhost_bucket = %%(bucket)s.%s\n" \
-          "${{ secrets.S3_ACCESS_KEY }}" "${{ secrets.S3_SECRET_KEY }}" \
-          "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" > ~/.s3cfg
-          
-          TARGET_PATH="${S3_PATH}/$(uname -m)/binary/${ARTIFACT}"
-          [[ "$RELEASE_VERSION" == "nightly"* ]] && TARGET_PATH="${S3_PATH}-nightly/$(uname -m)/binary/${ARTIFACT}"
-          
-          s3cmd put ${ARTIFACT} s3://${{ secrets.S3_BUCKET }}/${TARGET_PATH}
-
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.build.outputs.artifact_name }}
@@ -116,22 +98,6 @@ jobs:
         run: |
           ./build.sh -ncp -t ${RELEASE_VERSION}
           echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz | head -n 1)" >> $GITHUB_OUTPUT
-
-      - name: Upload to S3
-        if: ${{ env.S3_KEY != '' }}
-        env:
-          S3_KEY: ${{ secrets.S3_ACCESS_KEY }}
-          ARTIFACT: ${{ steps.build.outputs.artifact_name }}
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          sudo apt-get install -y s3cmd
-          printf "[default]\naccess_key = %s\nsecret_key = %s\nhost_base = %s\nhost_bucket = %%(bucket)s.%s\n" \
-          "${{ secrets.S3_ACCESS_KEY }}" "${{ secrets.S3_SECRET_KEY }}" \
-          "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" > ~/.s3cfg
-          
-          FOLDER="${S3_PATH}"
-          [[ "$RELEASE_VERSION" == "nightly"* ]] && FOLDER="${S3_PATH}-nightly"
-          s3cmd put ${ARTIFACT} s3://${{ secrets.S3_BUCKET }}/${FOLDER}/$(uname -m)/image/${ARTIFACT}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -177,27 +143,6 @@ jobs:
             echo "is_rpm=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload to S3
-        if: ${{ env.S3_KEY != '' }}
-        env:
-          S3_KEY: ${{ secrets.S3_ACCESS_KEY }}
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-          ARTIFACT: ${{ steps.build.outputs.artifact_name }}
-          SUBFOLDER: ${{ steps.build.outputs.s3_subfolder }}
-        run: |
-          sudo apt-get install -y s3cmd
-          printf "[default]\naccess_key = %s\nsecret_key = %s\nhost_base = %s\nhost_bucket = %%(bucket)s.%s\n" \
-          "${{ secrets.S3_ACCESS_KEY }}" "${{ secrets.S3_SECRET_KEY }}" \
-          "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" > ~/.s3cfg
-          
-          FILE_PATH=${ARTIFACT}
-          TARGET_NAME=${ARTIFACT}
-          [[ "${{ steps.build.outputs.is_rpm }}" == "true" ]] && FILE_PATH="rpm/${ARTIFACT}" && TARGET_NAME=$(echo ${ARTIFACT} | sed 's/.el7./-el7-/g')
-          
-          FOLDER="${S3_PATH}"
-          [[ "$RELEASE_VERSION" == "nightly"* ]] && FOLDER="${S3_PATH}-nightly"
-          s3cmd put ${FILE_PATH} s3://${{ secrets.S3_BUCKET }}/${FOLDER}/${SUBFOLDER}/${TARGET_NAME}
-
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.build.outputs.artifact_name }}
@@ -242,7 +187,77 @@ jobs:
           name: ${{ steps.build.outputs.artifact_name }}
           path: ${{ steps.build.outputs.artifact_name }}
 
-  # 5. 创建 Release (核心修改部分)
+# 独立出来的 S3 上传任务
+  push-to-s3:
+    name: Push to S3
+    needs: [set-release-version, build-core, build-docker, build-special]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Install s3cmd
+        run: sudo apt-get install -y s3cmd
+
+      - name: Configure S3
+        run: |
+          printf "[default]\naccess_key = %s\nsecret_key = %s\nhost_base = %s\nhost_bucket = %%(bucket)s.%s\n" \
+          "${{ secrets.S3_ACCESS_KEY }}" "${{ secrets.S3_SECRET_KEY }}" \
+          "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" "${{ secrets.S3_GLOBAL_ACC_HOST_BASE }}" > ~/.s3cfg
+
+      - name: Batch Upload
+        env:
+          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          S3_ROOT: ${{ env.S3_PATH }}
+          BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_KEY: ${{ secrets.S3_ACCESS_KEY }}
+        if: env.S3_KEY != ''
+        run: |
+          BASE_PATH="${S3_ROOT}"
+          if [[ "$RELEASE_VERSION" == "nightly"* ]]; then
+            BASE_PATH="${S3_ROOT}-nightly"
+          fi
+          
+          echo "Target S3 Base Path: s3://${BUCKET}/${BASE_PATH}"
+
+          find artifacts -type f | while read FILE; do
+            FILENAME=$(basename "$FILE")
+            DIRNAME=$(dirname "$FILE")
+            
+            ARCH="x86_64"
+            TYPE="binary"
+            TARGET_NAME="$FILENAME"
+            
+            if [[ "$FILENAME" == *"aarch64"* ]]; then
+              ARCH="aarch64"
+            elif [[ "$FILENAME" == *"arm64"* ]] || [[ "$FILENAME" == *"android"* ]]; then
+              ARCH="arm64-v8a"
+            else
+              ARCH="x86_64"
+            fi
+            
+            if [[ "$FILENAME" == *".rpm" ]]; then
+              TYPE="rpm"
+              TARGET_NAME=$(echo "$FILENAME" | sed 's/\.el7\./-el7-/g')
+            elif [[ "$FILENAME" == *"image"* ]] || [[ "$FILENAME" == *"docker"* ]]; then
+              TYPE="image"
+            elif [[ "$FILENAME" == *"android"* ]]; then
+              TYPE="binary"
+            elif [[ "$FILENAME" == *"gui"* ]]; then
+              echo "Skipping GUI file: $FILENAME"
+              continue
+            else
+              TYPE="binary"
+            fi
+            
+            S3_URI="s3://${BUCKET}/${BASE_PATH}/${ARCH}/${TYPE}/${TARGET_NAME}"
+            
+            echo "Uploading $FILENAME -> $S3_URI"
+            s3cmd put "$FILE" "$S3_URI"
+          done
+
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
