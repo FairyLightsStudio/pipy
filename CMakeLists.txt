@@ -44,7 +44,7 @@ option(BUILD_examples "build the examples for expat library" OFF)
 option(BUILD_tests "build the tests for expat library" OFF)
 option(BUILD_shared "build a shared expat library" OFF)
 option(BUILD_doc "build man page for xmlwf" OFF)
-add_subdirectory(deps/libexpat-R_2_2_6/expat)
+add_subdirectory(deps/libexpat-R_2_6_4/expat)
 
 option(LEVELDB_BUILD_TESTS "Build LevelDB's unit tests" OFF)
 option(LEVELDB_BUILD_BENCHMARKS "Build LevelDB's benchmarks" OFF)
@@ -159,14 +159,13 @@ else()
           "To compile with OpenSSL v1, you must set one of the following options:\n"
           "  - PIPY_OPENSSL: Provide a custom OpenSSL installation path.\n"
           "  - PIPY_USE_SYSTEM_OPENSSL: Use the system-installed OpenSSL library.\n"
-          "Please configure CMake with the correct option and try again."
-      )
-  endif()
-
-  set(OPENSSL_SRC_DIR ${CMAKE_SOURCE_DIR}/deps/openssl-3.2.0)
-  set(OPENSSL_LIB_DIR ${OPENSSL_SRC_DIR}/build)
-  set(OPENSSL_INC_DIR ${OPENSSL_SRC_DIR}/include ${OPENSSL_LIB_DIR}/include)
-
+                "Please configure CMake with the correct option and try again."
+            )
+          endif()
+          
+          set(OPENSSL_SRC_DIR ${CMAKE_SOURCE_DIR}/deps/openssl-3.4.0)
+          set(OPENSSL_LIB_DIR ${OPENSSL_SRC_DIR}/build)
+          set(OPENSSL_INC_DIR ${OPENSSL_SRC_DIR}/include ${OPENSSL_LIB_DIR}/include)
   file(MAKE_DIRECTORY "${OPENSSL_SRC_DIR}/build")
 
   if(WIN32)
@@ -201,8 +200,8 @@ if(PIPY_BROTLI)
 else()
   set(BROTLI_BUNDLED_MODE ON CACHE BOOL "" FORCE)
   set(BROTLI_DISABLE_TESTS ON CACHE BOOL "" FORCE)
-  add_subdirectory(deps/brotli-1.0.9)
-  set(BROTLI_INC_DIR "${CMAKE_SOURCE_DIR}/deps/brotli-1.0.9/c/include")
+  add_subdirectory(deps/brotli-1.1.0)
+  set(BROTLI_INC_DIR "${CMAKE_SOURCE_DIR}/deps/brotli-1.1.0/c/include")
   set(BROTLI_LIB brotlidec-static)
 endif(PIPY_BROTLI)
 
@@ -233,14 +232,13 @@ endif()
 include_directories(
   "${CMAKE_SOURCE_DIR}/src"
   "${CMAKE_SOURCE_DIR}/include"
-  "${CMAKE_SOURCE_DIR}/deps/asio-1.28.0/include"
+  "${CMAKE_SOURCE_DIR}/deps/asio-1.30.2/include"
   "${CMAKE_BINARY_DIR}/deps"
   "${CMAKE_BINARY_DIR}/deps/yajl-2.1.0/yajl-2.1.0/include"
   "${CMAKE_BINARY_DIR}/deps/libyaml-0.2.5/include"
-  "${CMAKE_BINARY_DIR}/deps/libexpat-R_2_2_6/expat/lib"
-  "${CMAKE_SOURCE_DIR}/deps/libexpat-R_2_2_6/expat/lib"
+  "${CMAKE_SOURCE_DIR}/deps/libexpat-R_2_6_4/expat/lib"
   "${CMAKE_SOURCE_DIR}/deps/leveldb-1.23/include"
-  "${CMAKE_SOURCE_DIR}/deps/sqlite-3.43.2"
+  "${CMAKE_SOURCE_DIR}/deps/sqlite-3.48.0"
   "${OPENSSL_INC_DIR}"
   "${BROTLI_INC_DIR}"
 )
@@ -394,7 +392,7 @@ SET(PIPY_SRC
   src/watch.cpp
   src/worker.cpp
   src/worker-thread.cpp
-  deps/sqlite-3.43.2/sqlite3.c
+  deps/sqlite-3.48.0/sqlite3.c
 )
 
 if(IOS)
