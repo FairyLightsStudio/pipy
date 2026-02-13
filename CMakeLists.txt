@@ -36,7 +36,6 @@ if(MSVC)
   )
 endif(MSVC)
 
-add_subdirectory(deps/yajl-2.1.0)
 add_subdirectory(deps/libyaml-0.2.5)
 
 option(BUILD_tools "build the xmlwf tool for expat library" OFF)
@@ -234,7 +233,7 @@ include_directories(
   "${CMAKE_SOURCE_DIR}/include"
   "${CMAKE_SOURCE_DIR}/deps/asio-1.30.2/include"
   "${CMAKE_BINARY_DIR}/deps"
-  "${CMAKE_BINARY_DIR}/deps/yajl-2.1.0/yajl-2.1.0/include"
+  "${CMAKE_SOURCE_DIR}/deps/rapidjson-1.1.0/include"
   "${CMAKE_BINARY_DIR}/deps/libyaml-0.2.5/include"
   "${CMAKE_SOURCE_DIR}/deps/libexpat-R_2_6_4/expat/lib"
   "${CMAKE_SOURCE_DIR}/deps/leveldb-1.23/include"
@@ -416,7 +415,7 @@ execute_process(
 
 add_custom_target(GenVer DEPENDS ${CMAKE_BINARY_DIR}/deps/version.h)
 
-add_dependencies(pipy yajl_s expat ${BROTLI_LIB} GenVer)
+add_dependencies(pipy expat ${BROTLI_LIB} GenVer)
 
 if(NOT PIPY_USE_SYSTEM_OPENSSL)
   add_dependencies(pipy OpenSSL)
@@ -512,7 +511,6 @@ endif()
 
 target_link_libraries(
   pipy
-  yajl_s
   yaml
   expat
   ${ZLIB_LIB}
