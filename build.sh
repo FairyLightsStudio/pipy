@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -e
 
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   PIPY_DIR=$(dirname $(readlink -e $(basename $0)))
@@ -196,7 +197,7 @@ function build() {
   rm -fr ${PIPY_DIR}/build/*
   cd ${PIPY_DIR}/build
   $CMAKE -DPIPY_GUI=${PIPY_GUI} -DPIPY_CODEBASES=${PIPY_GUI} -DPIPY_SAMPLES=${PIPY_GUI} -DPIPY_STATIC=${PIPY_STATIC} -DCMAKE_BUILD_TYPE=${BUILD_TYPE} $PIPY_DIR
-  make -j${__NPROC}
+  make -j${__NPROC} || exit 1
   if [ $? -eq 0 ];then
     echo "Pipy has been built successfully and can be found in ${PIPY_DIR}/bin"
   fi
