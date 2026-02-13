@@ -331,7 +331,6 @@ jobs:
           # 这里的 **/* 会递归上传 artifacts 目录下所有文件
           files: artifacts/**/*
 
-          
   save-log:
     if: ${{ always() && !contains(join(needs.*.result, ','), 'failure') }}
     needs: [set-release-version, build-core, build-docker, build-with-gui, build-special, create-release]
