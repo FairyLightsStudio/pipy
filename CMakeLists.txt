@@ -199,9 +199,10 @@ if(PIPY_BROTLI)
 else()
   set(BROTLI_BUNDLED_MODE ON CACHE BOOL "" FORCE)
   set(BROTLI_DISABLE_TESTS ON CACHE BOOL "" FORCE)
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
   add_subdirectory(deps/brotli-1.1.0)
   set(BROTLI_INC_DIR "${CMAKE_SOURCE_DIR}/deps/brotli-1.1.0/c/include")
-  set(BROTLI_LIB brotlidec-static)
+  set(BROTLI_LIB brotlidec)
 endif(PIPY_BROTLI)
 
 add_definitions(
