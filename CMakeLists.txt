@@ -1,8 +1,4 @@
-if(PIPY_STATIC)
-  cmake_minimum_required(VERSION 3.13)
-else()
-  cmake_minimum_required(VERSION 3.10)
-endif()
+cmake_minimum_required(VERSION 3.14)
 
 project(pipy)
 
@@ -36,24 +32,11 @@ if(MSVC)
   )
 endif(MSVC)
 
-add_subdirectory(deps/libyaml-0.2.5)
-
-option(BUILD_tools "build the xmlwf tool for expat library" OFF)
-option(BUILD_examples "build the examples for expat library" OFF)
-option(BUILD_tests "build the tests for expat library" OFF)
-option(BUILD_shared "build a shared expat library" OFF)
-option(BUILD_doc "build man page for xmlwf" OFF)
-add_subdirectory(deps/libexpat-R_2_6_4/expat)
-
-option(LEVELDB_BUILD_TESTS "Build LevelDB's unit tests" OFF)
-option(LEVELDB_BUILD_BENCHMARKS "Build LevelDB's benchmarks" OFF)
-option(LEVELDB_INSTALL "Install LevelDB's header and library" OFF)
-add_subdirectory(deps/leveldb-1.23)
-
-if(PIPY_SHARED AND UNIX AND NOT APPLE)
-  # Ensure position-independent code for static leveldb
-  set_target_properties(leveldb PROPERTIES POSITION_INDEPENDENT_CODE ON)
-endif()
+# FetchContent dependency management
+include(FetchContent)
+set(FETCHCONTENT_QUIET ON)
+include(cmake/DependencyVersions.cmake)
+include(cmake/FetchDependencies.cmake)
 
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_SOURCE_DIR}/bin)
 
@@ -114,21 +97,10 @@ endif(WIN32)
 if(PIPY_ZLIB)
   set(ZLIB_INC_DIR ${PIPY_ZLIB}/include)
   set(ZLIB_LIB ${PIPY_ZLIB}/lib/${LIB_Z})
-else()
-  if(PIPY_USE_SYSTEM_ZLIB)
-    SET(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
-    find_package(ZLIB REQUIRED)
-    set(ZLIB_LIB -lz)
-  else(PIPY_USE_SYSTEM_ZLIB)
-    add_subdirectory(deps/zlib-1.3.1)
-    set(ZLIB_INC_DIR "${CMAKE_SOURCE_DIR}/deps/zlib-1.3.1" "${CMAKE_BINARY_DIR}/deps/zlib-1.3.1")
-    set(ZLIB_LIB zlibstatic)
-
-    if(PIPY_SHARED AND UNIX AND NOT APPLE)
-      # Ensure position-independent code for static zlib
-      set_target_properties(zlibstatic PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    endif()
-  endif(PIPY_USE_SYSTEM_ZLIB)
+elseif(PIPY_USE_SYSTEM_ZLIB)
+  SET(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+  find_package(ZLIB REQUIRED)
+  set(ZLIB_LIB -lz)
 endif()
 
 if(PIPY_USE_OPENSSL1)
@@ -196,14 +168,7 @@ endif()
 if(PIPY_BROTLI)
   set(BROTLI_INC_DIR ${PIPY_BROTLI}/include)
   set(BROTLI_LIB ${PIPY_BROTLI}/lib/${LIB_BROTLI})
-else()
-  set(BROTLI_BUNDLED_MODE ON CACHE BOOL "" FORCE)
-  set(BROTLI_DISABLE_TESTS ON CACHE BOOL "" FORCE)
-  set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-  add_subdirectory(deps/brotli-1.1.0)
-  set(BROTLI_INC_DIR "${CMAKE_SOURCE_DIR}/deps/brotli-1.1.0/c/include")
-  set(BROTLI_LIB brotlidec)
-endif(PIPY_BROTLI)
+endif()
 
 add_definitions(
   -DPIPY_HOST="${CMAKE_HOST_SYSTEM} ${CMAKE_HOST_SYSTEM_PROCESSOR}"
@@ -232,12 +197,12 @@ endif()
 include_directories(
   "${CMAKE_SOURCE_DIR}/src"
   "${CMAKE_SOURCE_DIR}/include"
-  "${CMAKE_SOURCE_DIR}/deps/asio-1.30.2/include"
+  "${asio_SOURCE_DIR}/asio/include"
   "${CMAKE_BINARY_DIR}/deps"
-  "${CMAKE_SOURCE_DIR}/deps/rapidjson-1.1.0/include"
-  "${CMAKE_BINARY_DIR}/deps/libyaml-0.2.5/include"
-  "${CMAKE_SOURCE_DIR}/deps/libexpat-R_2_6_4/expat/lib"
-  "${CMAKE_SOURCE_DIR}/deps/leveldb-1.23/include"
+  "${rapidjson_SOURCE_DIR}/include"
+  "${libyaml_BINARY_DIR}/include"
+  "${libexpat_SOURCE_DIR}/expat/lib"
+  "${leveldb_SOURCE_DIR}/include"
   "${CMAKE_SOURCE_DIR}/deps/sqlite-3.48.0"
   "${OPENSSL_INC_DIR}"
   "${BROTLI_INC_DIR}"
@@ -408,6 +373,8 @@ elseif(PIPY_STATICLIB)
 else()
   add_executable(pipy ${PIPY_SRC})
 endif()
+
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/deps")
 
 execute_process(
   COMMAND ${CMAKE_SOURCE_DIR}/generate_version_h.${EXT_SHELL} ${CMAKE_BINARY_DIR}/deps/version.h
