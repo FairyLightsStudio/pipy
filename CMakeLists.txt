@@ -192,6 +192,9 @@ if(NOT MSVC)
     -Wno-sign-compare
     -Wno-deprecated-declarations
   )
+  if(CMAKE_CXX_COMPILER_ID MATCHES "(Apple)?[Cc]lang")
+    add_compile_options(-Wno-vla-cxx-extension)
+  endif()
 endif()
 
 include_directories(

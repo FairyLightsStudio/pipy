@@ -60,6 +60,19 @@ jobs:
             setup: "export CC=$(brew --prefix llvm@15)/bin/clang; export CXX=$(brew --prefix llvm@15)/bin/clang++"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmake/DependencyVersions.cmake') }}
+          restore-keys: |
+            deps-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install LLVM (macOS)
+        if: runner.os == 'macOS'
+        run: brew install llvm@15
+
       - name: Build
         id: build
         env:
@@ -90,6 +103,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmake/DependencyVersions.cmake') }}
+          restore-keys: |
+            deps-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Build Image
         id: build
         env:
@@ -172,6 +194,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
+
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmake/DependencyVersions.cmake') }}
+          restore-keys: |
+            deps-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install LLVM (macOS)
+        if: runner.os == 'macOS'
+        run: brew install llvm@15
+
       - name: Build GUI
         id: build
         env:
