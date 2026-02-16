@@ -295,7 +295,7 @@ if $BUILD_ANDROID; then
 
   export ANDROID_NDK_ROOT=$NDK
 
-  cd $PIPY_DIR/deps/openssl-3.2.0
+  cd $PIPY_DIR/deps/openssl-3.4.0
 
   mkdir -p android && cd android
 

@@ -193,7 +193,7 @@ if(NOT MSVC)
     -Wno-deprecated-declarations
   )
   if(CMAKE_CXX_COMPILER_ID MATCHES "(Apple)?[Cc]lang")
-    add_compile_options(-Wno-vla-cxx-extension)
+    add_compile_options(-Wno-vla-extension)
   endif()
 endif()
 
