@@ -57,6 +57,8 @@ endif()
 # 4. Zlib
 #-------------------------------------------------------------------------------
 if(NOT PIPY_USE_SYSTEM_ZLIB AND NOT PIPY_ZLIB)
+  set(ZLIB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+
   FetchContent_Declare(
     zlib
     GIT_REPOSITORY ${DEP_ZLIB_REPO}
