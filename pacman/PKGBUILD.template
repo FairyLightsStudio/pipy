@@ -1,0 +1,32 @@
+pkgname=pipy
+pkgver=@VERSION@
+pkgrel=@REVISION@
+pkgdesc="Pipy - programmable network proxy for the cloud, edge and IoT"
+arch=('x86_64' 'aarch64')
+url="https://github.com/flomesh-io/pipy"
+license=('custom:NEU')
+depends=('zlib' 'gcc-libs')
+makedepends=('clang' 'cmake' 'git' 'perl')
+source=("pipy.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "${srcdir}/pipy"
+  mkdir -p build && cd build
+  CC=clang CXX=clang++ cmake \
+    -DPIPY_GUI=${PIPY_GUI:-OFF} \
+    -DPIPY_CODEBASES=${PIPY_GUI:-OFF} \
+    -DPIPY_STATIC=${PIPY_STATIC:-OFF} \
+    -DCMAKE_BUILD_TYPE=${BUILD_TYPE:-Release} ..
+  make -j$(nproc)
+}
+
+package() {
+  install -Dm755 "${srcdir}/pipy/bin/pipy" "${pkgdir}/usr/local/bin/pipy"
+  install -dm755 "${pkgdir}/etc/pipy"
+  # sysusers.d declaration for pipy system user
+  install -Dm644 /dev/stdin "${pkgdir}/usr/lib/sysusers.d/pipy.conf" <<EOF
+g pipy -
+u pipy - "pipy service user" /etc/pipy /usr/sbin/nologin
+EOF
+}

@@ -1,0 +1,10 @@
+Package: pipy
+Version: @VERSION@-@REVISION@
+Section: net
+Priority: optional
+Architecture: @ARCH@
+Depends: libc6, zlib1g, libstdc++6
+Maintainer: Flomesh <khas@flomesh.io>
+Description: Pipy - programmable network proxy
+ Pipy is a tiny, high performance, highly stable, programmable
+ network proxy for the cloud, edge and IoT.

@@ -36,7 +36,9 @@ RUN sed -i -e 's@^mirrorlist@#mirrorlist@g' -e 's@^# *baseurl=http://mirror@base
     && mv /rpmmacros ~/.rpmmacros \
     && yum install -y centos-release-scl epel-release yum-utils \
     && sed -i -e 's@^mirrorlist@#mirrorlist@g' -e 's@^# *baseurl=http://mirror@baseurl=http://vault@g' /etc/yum.repos.d/*.repo \
-    && yum-builddep --define "_with_gui 1" -y /pipy.spec
+    && yum-builddep --define "_with_gui 1" -y /pipy.spec \
+    && git config --global user.email "build@flomesh.io" \
+    && git config --global user.name "Build"
 
 RUN mv /pipy.tar.gz ~/rpmbuild/SOURCES \
     && mv /pipy.spec ~/rpmbuild/SPECS \

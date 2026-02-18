@@ -28,6 +28,8 @@ BUILD_CONTAINER=false
 BUILD_RPM=false
 BUILD_BINARY=true
 BUILD_ANDROID=false
+BUILD_DEB=false
+BUILD_PACMAN=false
 BUILD_TYPE=Release
 PACKAGE_OUTPUTS=false
 
@@ -42,7 +44,7 @@ PIPY_GUI=${PIPY_GUI:-OFF}
 OS_ARCH=$(uname -m | sed 's#arm64#aarch64#g')
 ##### End Default environment variables #########
 
-SHORT_OPTS="crsgt:nhpda"
+SHORT_OPTS="crsgt:nhpdabm"
 
 function usage() {
     echo "Usage: $0 [-h|-c|-r|-s|-g|-n|-t <version-revision>]" 1>&2
@@ -51,6 +53,8 @@ function usage() {
     echo "       -c                     Build a container image"
     echo "       -a                     Build a android binary"
     echo "       -r                     Build a CentOS/RHEL RPM package"
+    echo "       -b                     Build a Debian .deb package"
+    echo "       -m                     Build an Arch Linux pacman package"
     echo "       -n                     Build a stand-alone executable (default: yes)"
     echo "       -d                     Build with debugging information (default: no)"
     echo "       -s                     Build with static linking (default: no)"
@@ -100,6 +104,14 @@ while true ; do
       ;;
     -a)
       BUILD_ANDROID=true
+      shift
+      ;;
+    -b)
+      BUILD_DEB=true
+      shift
+      ;;
+    -m)
+      BUILD_PACMAN=true
       shift
       ;;
     -h)
@@ -252,6 +264,68 @@ if $BUILD_RPM; then
   sudo docker run --rm -v $PIPY_DIR/rpm:/data pipy-rpmbuild:$RELEASE_VERSION bash -c "cp /rpm/*.rpm /data"
   git checkout -- $PIPY_DIR/rpm/pipy.spec
   rm -f $PIPY_DIR/rpm/pipy.tar.gz
+fi
+
+# Build DEB from container
+if $BUILD_DEB; then
+  cd $PIPY_DIR
+
+  cd ..
+  tar zcvf pipy.tar.gz pipy
+  mv pipy.tar.gz $PIPY_DIR/deb
+
+  cd $PIPY_DIR/deb
+
+  if [[ "$RELEASE_VERSION" != "nightly"* ]]; then
+    REVISION=1
+  fi
+
+  sed -e "s/@VERSION@/$VERSION/g" -e "s/@REVISION@/$REVISION/g" control.template > control
+
+  sudo docker build -t pipy-debbuild:$RELEASE_VERSION \
+    --build-arg VERSION=$VERSION \
+    --build-arg REVISION=$REVISION \
+    --build-arg COMMIT_ID=$COMMIT_ID \
+    --build-arg COMMIT_DATE="$COMMIT_DATE" \
+    --build-arg PIPY_GUI="$PIPY_GUI" \
+    --build-arg PIPY_STATIC="$PIPY_STATIC" \
+    --build-arg BUILD_TYPE="$BUILD_TYPE" \
+    -f Dockerfile .
+
+  sudo docker run --rm -v $PIPY_DIR/deb:/data pipy-debbuild:$RELEASE_VERSION bash -c "cp /deb/*.deb /data"
+  rm -f $PIPY_DIR/deb/control
+  rm -f $PIPY_DIR/deb/pipy.tar.gz
+fi
+
+# Build Pacman package from container
+if $BUILD_PACMAN; then
+  cd $PIPY_DIR
+
+  cd ..
+  tar zcvf pipy.tar.gz pipy
+  mv pipy.tar.gz $PIPY_DIR/pacman
+
+  cd $PIPY_DIR/pacman
+
+  if [[ "$RELEASE_VERSION" != "nightly"* ]]; then
+    REVISION=1
+  fi
+
+  sed -e "s/@VERSION@/$VERSION/g" -e "s/@REVISION@/$REVISION/g" PKGBUILD.template > PKGBUILD
+
+  sudo docker build -t pipy-pacmanbuild:$RELEASE_VERSION \
+    --build-arg VERSION=$VERSION \
+    --build-arg REVISION=$REVISION \
+    --build-arg COMMIT_ID=$COMMIT_ID \
+    --build-arg COMMIT_DATE="$COMMIT_DATE" \
+    --build-arg PIPY_GUI="$PIPY_GUI" \
+    --build-arg PIPY_STATIC="$PIPY_STATIC" \
+    --build-arg BUILD_TYPE="$BUILD_TYPE" \
+    -f Dockerfile .
+
+  sudo docker run --rm -v $PIPY_DIR/pacman:/data pipy-pacmanbuild:$RELEASE_VERSION bash -c "cp /pacman/*.pkg.tar.zst /data"
+  rm -f $PIPY_DIR/pacman/PKGBUILD
+  rm -f $PIPY_DIR/pacman/pipy.tar.gz
 fi
 
 if $BUILD_CONTAINER; then

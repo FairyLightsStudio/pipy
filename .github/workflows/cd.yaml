@@ -126,49 +126,96 @@ jobs:
           name: ${{ steps.build.outputs.artifact_name }}
           path: ${{ steps.build.outputs.artifact_name }}
 
-  # 3. Android 和 RPM 构建任务
-  build-special:
-    name: ${{ matrix.type }}
+  # 3. Android 构建任务
+  build-android:
+    name: Android
     needs: set-release-version
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        type: [android, rpm]
     steps:
       - uses: actions/checkout@v4
-      
-      # Android 环境准备
-      - if: matrix.type == 'android'
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - if: matrix.type == 'android'
-        uses: nttld/setup-ndk@v1
+      - uses: nttld/setup-ndk@v1
         id: setup-ndk
         with: { ndk-version: r26c }
-      - if: matrix.type == 'android'
-        uses: seanmiddleditch/gha-setup-ninja@v4
-      
+      - uses: seanmiddleditch/gha-setup-ninja@v4
+
       - name: Build
         id: build
         env:
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
           NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          if [ "${{ matrix.type }}" == "android" ]; then
-            ./build.sh -nap
-            echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz | head -n 1)" >> $GITHUB_OUTPUT
-            echo "s3_subfolder=arm64-v8a/binary" >> $GITHUB_OUTPUT
-          else
-            ./build.sh -nr -t ${RELEASE_VERSION}
-            echo "artifact_name=$(cd rpm; ls *.rpm | head -n 1)" >> $GITHUB_OUTPUT
-            echo "s3_subfolder=$(uname -m)/rpm" >> $GITHUB_OUTPUT
-            echo "is_rpm=true" >> $GITHUB_OUTPUT
-          fi
+          ./build.sh -nap
+          echo "artifact_name=$(ls *${RELEASE_VERSION}*.tar.gz | head -n 1)" >> $GITHUB_OUTPUT
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.build.outputs.artifact_name }}
-          path: ${{ steps.build.outputs.is_rpm == 'true' && format('rpm/{0}', steps.build.outputs.artifact_name) || steps.build.outputs.artifact_name }}
+          path: ${{ steps.build.outputs.artifact_name }}
+
+  # 4. RPM 构建任务
+  build-rpm:
+    name: RPM
+    needs: set-release-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        id: build
+        env:
+          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+        run: |
+          ./build.sh -nr -t ${RELEASE_VERSION}
+          echo "artifact_name=$(cd rpm; ls *.rpm | head -n 1)" >> $GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: rpm/${{ steps.build.outputs.artifact_name }}
+
+  # 5. DEB 构建任务
+  build-deb:
+    name: DEB
+    needs: set-release-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        id: build
+        env:
+          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+        run: |
+          ./build.sh -nb -t ${RELEASE_VERSION}
+          echo "artifact_name=$(cd deb; ls *.deb | head -n 1)" >> $GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: deb/${{ steps.build.outputs.artifact_name }}
+
+  # 6. Pacman 构建任务
+  build-pacman:
+    name: Pacman
+    needs: set-release-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        id: build
+        env:
+          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+        run: |
+          ./build.sh -nm -t ${RELEASE_VERSION}
+          echo "artifact_name=$(cd pacman; ls *.pkg.tar.zst | head -n 1)" >> $GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: pacman/${{ steps.build.outputs.artifact_name }}
 
   build-with-gui:
     name: GUI ${{ matrix.os }} ${{ matrix.arch }}
@@ -224,7 +271,7 @@ jobs:
 
   push-to-s3:
     name: Push to S3
-    needs: [build-core, build-docker, build-special]
+    needs: [build-core, build-docker, build-android, build-rpm, build-deb, build-pacman]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -278,7 +325,15 @@ jobs:
               # RPM 特殊重命名: .el7. -> -el7-
               TARGET_NAME=$(echo "$FILENAME" | sed 's/\.el7\./-el7-/g')
               # RPM 架构通常就是 x86_64，上面逻辑已覆盖
-              
+
+            elif [[ "$FILENAME" == *".deb" ]]; then
+              TYPE="deb"
+              [[ "$FILENAME" == *"amd64"* ]] && ARCH="x86_64"
+              [[ "$FILENAME" == *"arm64"* ]] && ARCH="aarch64"
+
+            elif [[ "$FILENAME" == *".pkg.tar.zst" ]]; then
+              TYPE="pacman"
+
             elif [[ "$FILENAME" == *"alpine"* ]]; then
               TYPE="image"
               
@@ -309,7 +364,7 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
-    needs: [build-core, build-docker, build-with-gui, build-special]
+    needs: [build-core, build-docker, build-with-gui, build-android, build-rpm, build-deb, build-pacman]
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -359,6 +414,10 @@ jobs:
           X86_RPM=$(find_file ".rpm" "")
           ANDROID=$(find_file "android" "")
 
+          # DEB & Pacman
+          X86_DEB=$(find_file ".deb" "")
+          X86_PACMAN=$(find_file ".pkg.tar.zst" "")
+
           cat > release_body.md << EOF
           **Download based on your OS:**
 
@@ -369,6 +428,8 @@ jobs:
           | 🍎 macOS | x86_64 | [${X86_MACOS}](${BASE}/${X86_MACOS}) | [${X86_MACOS_GUI}](${BASE}/${X86_MACOS_GUI}) |
           | 🍎 macOS | aarch64 | [${AARCH64_MACOS}](${BASE}/${AARCH64_MACOS}) | [${AARCH64_MACOS_GUI}](${BASE}/${AARCH64_MACOS_GUI}) |
           | 🐧 Linux (RPM) | x86_64 | [${X86_RPM}](${BASE}/${X86_RPM}) | - |
+          | 🐧 Linux (DEB) | x86_64 | [${X86_DEB}](${BASE}/${X86_DEB}) | - |
+          | 🐧 Linux (Pacman) | x86_64 | [${X86_PACMAN}](${BASE}/${X86_PACMAN}) | - |
           | 🤖 Android | arm64-v8a | [${ANDROID}](${BASE}/${ANDROID}) | - |
           EOF
           
@@ -384,7 +445,7 @@ jobs:
 
   save-log:
     if: ${{ always() && !contains(join(needs.*.result, ','), 'failure') }}
-    needs: [build-core, build-docker, build-with-gui, build-special, create-release]
+    needs: [build-core, build-docker, build-with-gui, build-android, build-rpm, build-deb, build-pacman, create-release]
     runs-on: ubuntu-latest
     steps:
       - name: Save log
