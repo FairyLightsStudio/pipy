@@ -1,0 +1,57 @@
+name: pipy
+arch: ${OS_ARCH}
+version: ${VERSION}
+release: ${REVISION}
+version_schema: none
+section: net
+priority: optional
+maintainer: Flomesh <khas@flomesh.io>
+description: |
+  Pipy - programmable network proxy
+  Pipy is a tiny, high performance, highly stable, programmable
+  network proxy for the cloud, edge and IoT.
+homepage: https://github.com/flomesh-io/pipy
+license: NEU
+
+contents:
+  - src: bin/pipy
+    dst: /usr/local/bin/pipy
+    file_info:
+      mode: 0755
+  - dst: /etc/pipy
+    type: dir
+    file_info:
+      mode: 0755
+  - src: nfpm/pipy.service
+    dst: /usr/lib/systemd/system/pipy.service
+    file_info:
+      mode: 0644
+    packager: deb
+  - src: nfpm/pipy.service
+    dst: /usr/lib/systemd/system/pipy.service
+    file_info:
+      mode: 0644
+    packager: archlinux
+
+scripts:
+  preinstall: nfpm/preinstall.sh
+  postinstall: nfpm/postinstall.sh
+  preremove: nfpm/preremove.sh
+  postremove: nfpm/postremove.sh
+
+overrides:
+  deb:
+    depends:
+      - libc6
+      - zlib1g
+      - libstdc++6
+  archlinux:
+    depends:
+      - zlib
+      - gcc-libs
+  apk:
+    depends:
+      - zlib
+      - libstdc++
+  ipk:
+    depends: []

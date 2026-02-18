@@ -175,47 +175,55 @@ jobs:
           name: ${{ steps.build.outputs.artifact_name }}
           path: rpm/${{ steps.build.outputs.artifact_name }}
 
-  # 5. DEB 构建任务
-  build-deb:
-    name: DEB
+  # 5. nFPM Packager (deb + archlinux + apk + ipk)
+  build-nfpm:
+    name: nFPM Packages
     needs: set-release-version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmake/DependencyVersions.cmake') }}
+          restore-keys: |
+            deps-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install nFPM
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install -y nfpm
+
+      - name: Build and Package
         id: build
         env:
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
         run: |
-          ./build.sh -nb -t ${RELEASE_VERSION}
-          echo "artifact_name=$(cd deb; ls *.deb | head -n 1)" >> $GITHUB_OUTPUT
+          ./build.sh -bmki -t ${RELEASE_VERSION}
+          echo "deb_name=$(ls pkg/*.deb 2>/dev/null | head -n 1 | xargs basename)" >> $GITHUB_OUTPUT
+          echo "archlinux_name=$(ls pkg/*.pkg.tar.zst 2>/dev/null | head -n 1 | xargs basename)" >> $GITHUB_OUTPUT
+          echo "apk_name=$(ls pkg/*.apk 2>/dev/null | head -n 1 | xargs basename)" >> $GITHUB_OUTPUT
+          echo "ipk_name=$(ls pkg/*.ipk 2>/dev/null | head -n 1 | xargs basename)" >> $GITHUB_OUTPUT
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.build.outputs.artifact_name }}
-          path: deb/${{ steps.build.outputs.artifact_name }}
-
-  # 6. Pacman 构建任务
-  build-pacman:
-    name: Pacman
-    needs: set-release-version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build
-        id: build
-        env:
-          RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
-        run: |
-          ./build.sh -nm -t ${RELEASE_VERSION}
-          echo "artifact_name=$(cd pacman; ls *.pkg.tar.zst | head -n 1)" >> $GITHUB_OUTPUT
-
+          name: ${{ steps.build.outputs.deb_name }}
+          path: pkg/${{ steps.build.outputs.deb_name }}
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.build.outputs.artifact_name }}
-          path: pacman/${{ steps.build.outputs.artifact_name }}
+          name: ${{ steps.build.outputs.archlinux_name }}
+          path: pkg/${{ steps.build.outputs.archlinux_name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.apk_name }}
+          path: pkg/${{ steps.build.outputs.apk_name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.ipk_name }}
+          path: pkg/${{ steps.build.outputs.ipk_name }}
 
   build-with-gui:
     name: GUI ${{ matrix.os }} ${{ matrix.arch }}
@@ -271,7 +279,7 @@ jobs:
 
   push-to-s3:
     name: Push to S3
-    needs: [build-core, build-docker, build-android, build-rpm, build-deb, build-pacman]
+    needs: [build-core, build-docker, build-android, build-rpm, build-nfpm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -334,6 +342,12 @@ jobs:
             elif [[ "$FILENAME" == *".pkg.tar.zst" ]]; then
               TYPE="pacman"
 
+            elif [[ "$FILENAME" == *".apk" ]]; then
+              TYPE="apk"
+
+            elif [[ "$FILENAME" == *".ipk" ]]; then
+              TYPE="ipk"
+
             elif [[ "$FILENAME" == *"alpine"* ]]; then
               TYPE="image"
               
@@ -364,7 +378,7 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     if: ${{ !contains(needs.set-release-version.outputs.release_version, 'nightly') }}
-    needs: [build-core, build-docker, build-with-gui, build-android, build-rpm, build-deb, build-pacman]
+    needs: [build-core, build-docker, build-with-gui, build-android, build-rpm, build-nfpm]
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -414,9 +428,11 @@ jobs:
           X86_RPM=$(find_file ".rpm" "")
           ANDROID=$(find_file "android" "")
 
-          # DEB & Pacman
+          # DEB & Pacman & APK & IPK
           X86_DEB=$(find_file ".deb" "")
           X86_PACMAN=$(find_file ".pkg.tar.zst" "")
+          X86_APK=$(find_file ".apk" "")
+          X86_IPK=$(find_file ".ipk" "")
 
           cat > release_body.md << EOF
           **Download based on your OS:**
@@ -430,6 +446,8 @@ jobs:
           | 🐧 Linux (RPM) | x86_64 | [${X86_RPM}](${BASE}/${X86_RPM}) | - |
           | 🐧 Linux (DEB) | x86_64 | [${X86_DEB}](${BASE}/${X86_DEB}) | - |
           | 🐧 Linux (Pacman) | x86_64 | [${X86_PACMAN}](${BASE}/${X86_PACMAN}) | - |
+          | 🐧 Linux (APK) | x86_64 | [${X86_APK}](${BASE}/${X86_APK}) | - |
+          | 🐧 Linux (IPK) | x86_64 | [${X86_IPK}](${BASE}/${X86_IPK}) | - |
           | 🤖 Android | arm64-v8a | [${ANDROID}](${BASE}/${ANDROID}) | - |
           EOF
           
@@ -445,7 +463,7 @@ jobs:
 
   save-log:
     if: ${{ always() && !contains(join(needs.*.result, ','), 'failure') }}
-    needs: [build-core, build-docker, build-with-gui, build-android, build-rpm, build-deb, build-pacman, create-release]
+    needs: [build-core, build-docker, build-with-gui, build-android, build-rpm, build-nfpm, create-release]
     runs-on: ubuntu-latest
     steps:
       - name: Save log

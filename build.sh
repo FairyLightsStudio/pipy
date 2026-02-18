@@ -30,6 +30,8 @@ BUILD_BINARY=true
 BUILD_ANDROID=false
 BUILD_DEB=false
 BUILD_PACMAN=false
+BUILD_APK=false
+BUILD_IPK=false
 BUILD_TYPE=Release
 PACKAGE_OUTPUTS=false
 
@@ -44,7 +46,7 @@ PIPY_GUI=${PIPY_GUI:-OFF}
 OS_ARCH=$(uname -m | sed 's#arm64#aarch64#g')
 ##### End Default environment variables #########
 
-SHORT_OPTS="crsgt:nhpdabm"
+SHORT_OPTS="crsgt:nhpdabmki"
 
 function usage() {
     echo "Usage: $0 [-h|-c|-r|-s|-g|-n|-t <version-revision>]" 1>&2
@@ -55,6 +57,8 @@ function usage() {
     echo "       -r                     Build a CentOS/RHEL RPM package"
     echo "       -b                     Build a Debian .deb package"
     echo "       -m                     Build an Arch Linux pacman package"
+    echo "       -k                     Build an Alpine .apk package"
+    echo "       -i                     Build an OpenWrt .ipk package"
     echo "       -n                     Build a stand-alone executable (default: yes)"
     echo "       -d                     Build with debugging information (default: no)"
     echo "       -s                     Build with static linking (default: no)"
@@ -112,6 +116,14 @@ while true ; do
       ;;
     -m)
       BUILD_PACMAN=true
+      shift
+      ;;
+    -k)
+      BUILD_APK=true
+      shift
+      ;;
+    -i)
+      BUILD_IPK=true
       shift
       ;;
     -h)
@@ -266,66 +278,33 @@ if $BUILD_RPM; then
   rm -f $PIPY_DIR/rpm/pipy.tar.gz
 fi
 
-# Build DEB from container
-if $BUILD_DEB; then
-  cd $PIPY_DIR
+# Build packages with nFPM (deb, archlinux, apk, ipk)
+__NFPM_NEEDED=false
+$BUILD_DEB && __NFPM_NEEDED=true
+$BUILD_PACMAN && __NFPM_NEEDED=true
+$BUILD_APK && __NFPM_NEEDED=true
+$BUILD_IPK && __NFPM_NEEDED=true
 
-  cd ..
-  tar zcvf pipy.tar.gz pipy
-  mv pipy.tar.gz $PIPY_DIR/deb
+if $__NFPM_NEEDED; then
+  command -v nfpm >/dev/null 2>&1 || { echo "nfpm not found. Install: https://nfpm.goreleaser.com/install/"; exit 1; }
 
-  cd $PIPY_DIR/deb
+  if [ ! -f "$PIPY_DIR/bin/pipy" ]; then
+    echo "bin/pipy not found. Build the binary first (remove -n flag)."
+    exit 1
+  fi
 
   if [[ "$RELEASE_VERSION" != "nightly"* ]]; then
     REVISION=1
   fi
 
-  sed -e "s/@VERSION@/$VERSION/g" -e "s/@REVISION@/$REVISION/g" control.template > control
-
-  sudo docker build -t pipy-debbuild:$RELEASE_VERSION \
-    --build-arg VERSION=$VERSION \
-    --build-arg REVISION=$REVISION \
-    --build-arg COMMIT_ID=$COMMIT_ID \
-    --build-arg COMMIT_DATE="$COMMIT_DATE" \
-    --build-arg PIPY_GUI="$PIPY_GUI" \
-    --build-arg PIPY_STATIC="$PIPY_STATIC" \
-    --build-arg BUILD_TYPE="$BUILD_TYPE" \
-    -f Dockerfile .
-
-  sudo docker run --rm -v $PIPY_DIR/deb:/data pipy-debbuild:$RELEASE_VERSION bash -c "cp /deb/*.deb /data"
-  rm -f $PIPY_DIR/deb/control
-  rm -f $PIPY_DIR/deb/pipy.tar.gz
-fi
-
-# Build Pacman package from container
-if $BUILD_PACMAN; then
   cd $PIPY_DIR
+  export VERSION REVISION OS_ARCH
+  mkdir -p $PIPY_DIR/pkg
 
-  cd ..
-  tar zcvf pipy.tar.gz pipy
-  mv pipy.tar.gz $PIPY_DIR/pacman
-
-  cd $PIPY_DIR/pacman
-
-  if [[ "$RELEASE_VERSION" != "nightly"* ]]; then
-    REVISION=1
-  fi
-
-  sed -e "s/@VERSION@/$VERSION/g" -e "s/@REVISION@/$REVISION/g" PKGBUILD.template > PKGBUILD
-
-  sudo docker build -t pipy-pacmanbuild:$RELEASE_VERSION \
-    --build-arg VERSION=$VERSION \
-    --build-arg REVISION=$REVISION \
-    --build-arg COMMIT_ID=$COMMIT_ID \
-    --build-arg COMMIT_DATE="$COMMIT_DATE" \
-    --build-arg PIPY_GUI="$PIPY_GUI" \
-    --build-arg PIPY_STATIC="$PIPY_STATIC" \
-    --build-arg BUILD_TYPE="$BUILD_TYPE" \
-    -f Dockerfile .
-
-  sudo docker run --rm -v $PIPY_DIR/pacman:/data pipy-pacmanbuild:$RELEASE_VERSION bash -c "cp /pacman/*.pkg.tar.zst /data"
-  rm -f $PIPY_DIR/pacman/PKGBUILD
-  rm -f $PIPY_DIR/pacman/pipy.tar.gz
+  $BUILD_DEB    && nfpm package -f $PIPY_DIR/nfpm/nfpm.yaml -p deb       -t $PIPY_DIR/pkg/
+  $BUILD_PACMAN && nfpm package -f $PIPY_DIR/nfpm/nfpm.yaml -p archlinux -t $PIPY_DIR/pkg/
+  $BUILD_APK    && nfpm package -f $PIPY_DIR/nfpm/nfpm.yaml -p apk       -t $PIPY_DIR/pkg/
+  $BUILD_IPK    && nfpm package -f $PIPY_DIR/nfpm/nfpm.yaml -p ipk       -t $PIPY_DIR/pkg/
 fi
 
 if $BUILD_CONTAINER; then
