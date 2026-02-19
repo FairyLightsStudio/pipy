@@ -1,5 +1,13 @@
 include(FetchContent)
 
+# Disable the update step for already-populated dependencies.
+# FetchContent's default update step runs "git pull --rebase" which fails
+# when GIT_TAG is a tag (not a branch) because origin/<tag> does not exist
+# as a remote-tracking branch.  Since we pin exact versions in
+# DependencyVersions.cmake, there is no need to re-pull after the initial
+# clone.
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 

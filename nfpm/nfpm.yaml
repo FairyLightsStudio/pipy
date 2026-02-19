@@ -1,4 +1,4 @@
-name: pipy
+name: ${PKG_NAME}
 arch: ${OS_ARCH}
 version: ${VERSION}
 release: ${REVISION}
@@ -22,6 +22,7 @@ contents:
     type: dir
     file_info:
       mode: 0755
+  # systemd service — deb, archlinux, rpm only
   - src: nfpm/pipy.service
     dst: /usr/lib/systemd/system/pipy.service
     file_info:
@@ -32,6 +33,11 @@ contents:
     file_info:
       mode: 0644
     packager: archlinux
+  - src: nfpm/pipy.service
+    dst: /usr/lib/systemd/system/pipy.service
+    file_info:
+      mode: 0644
+    packager: rpm
 
 scripts:
   preinstall: nfpm/preinstall.sh
@@ -45,10 +51,21 @@ overrides:
       - libc6
       - zlib1g
       - libstdc++6
+    conflicts:
+      - ${PIPY_CONFLICTS}
   archlinux:
     depends:
       - zlib
       - gcc-libs
+    conflicts:
+      - ${PIPY_CONFLICTS}
+  rpm:
+    depends:
+      - glibc
+      - zlib
+      - libstdc++
+    conflicts:
+      - ${PIPY_CONFLICTS}
   apk:
     depends:
       - zlib

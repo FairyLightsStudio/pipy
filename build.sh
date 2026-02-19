@@ -298,7 +298,7 @@ if $__NFPM_NEEDED; then
   fi
 
   cd $PIPY_DIR
-  export VERSION REVISION OS_ARCH
+  export VERSION REVISION OS_ARCH PKG_NAME
   mkdir -p $PIPY_DIR/pkg
 
   $BUILD_DEB    && nfpm package -f $PIPY_DIR/nfpm/nfpm.yaml -p deb       -t $PIPY_DIR/pkg/
