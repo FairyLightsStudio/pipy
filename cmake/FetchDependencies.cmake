@@ -38,9 +38,14 @@ FetchContent_Declare(
   GIT_REPOSITORY ${DEP_EXPAT_REPO}
   GIT_TAG        ${DEP_EXPAT_VERSION}
   GIT_SHALLOW    TRUE
-  SOURCE_SUBDIR  expat
+  # Do NOT use SOURCE_SUBDIR here — it requires CMake 3.18+
+  # and CentOS 7 ships cmake3 3.17.x.  We manually add_subdirectory below.
 )
-FetchContent_MakeAvailable(libexpat)
+FetchContent_GetProperties(libexpat)
+if(NOT libexpat_POPULATED)
+  FetchContent_Populate(libexpat)
+  add_subdirectory(${libexpat_SOURCE_DIR}/expat ${libexpat_BINARY_DIR})
+endif()
 
 #-------------------------------------------------------------------------------
 # 3. LevelDB
@@ -117,13 +122,15 @@ FetchContent_MakeAvailable(asio)
 #-------------------------------------------------------------------------------
 # 7. RapidJSON (Header-only)
 #-------------------------------------------------------------------------------
+# RapidJSON is header-only; its CMakeLists.txt uses cmake_minimum_required 2.8
+# which fails on CMake 4.x, so we skip add_subdirectory entirely.
 FetchContent_Declare(
   rapidjson
   GIT_REPOSITORY ${DEP_RAPIDJSON_REPO}
   GIT_TAG        ${DEP_RAPIDJSON_VERSION}
   GIT_SHALLOW    TRUE
-  SOURCE_SUBDIR  __none__
 )
-# SOURCE_SUBDIR points to non-existent dir to skip add_subdirectory
-# (rapidjson's CMakeLists.txt uses cmake_minimum_required 2.8 which fails on CMake 4.x)
-FetchContent_MakeAvailable(rapidjson)
+FetchContent_GetProperties(rapidjson)
+if(NOT rapidjson_POPULATED)
+  FetchContent_Populate(rapidjson)
+endif()
