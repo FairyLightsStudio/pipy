@@ -134,7 +134,7 @@ else()
             )
           endif()
           
-          set(OPENSSL_SRC_DIR ${CMAKE_SOURCE_DIR}/deps/openssl-3.4.0)
+          set(OPENSSL_SRC_DIR ${CMAKE_SOURCE_DIR}/deps/openssl-3.6.1)
           set(OPENSSL_LIB_DIR ${OPENSSL_SRC_DIR}/build)
           set(OPENSSL_INC_DIR ${OPENSSL_SRC_DIR}/include ${OPENSSL_LIB_DIR}/include)
   file(MAKE_DIRECTORY "${OPENSSL_SRC_DIR}/build")
@@ -206,7 +206,7 @@ include_directories(
   "${libyaml_BINARY_DIR}/include"
   "${libexpat_SOURCE_DIR}/expat/lib"
   "${leveldb_SOURCE_DIR}/include"
-  "${CMAKE_SOURCE_DIR}/deps/sqlite-3.48.0"
+  "${CMAKE_SOURCE_DIR}/deps/sqlite-3.51.2"
   "${OPENSSL_INC_DIR}"
   "${BROTLI_INC_DIR}"
 )
@@ -360,7 +360,7 @@ SET(PIPY_SRC
   src/watch.cpp
   src/worker.cpp
   src/worker-thread.cpp
-  deps/sqlite-3.48.0/sqlite3.c
+  deps/sqlite-3.51.2/sqlite3.c
 )
 
 if(IOS)
