@@ -105,7 +105,7 @@ jobs:
           path: bin/pipy
 
   build-linux-alpine:
-    name: Alpine ${{ matrix.arch }}
+    name: Alpine ${{ matrix.pkg_name }} ${{ matrix.arch }}
     needs: set-release-version
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -114,8 +114,24 @@ jobs:
         include:
           - runner: ubuntu-latest
             arch: x86_64
+            gui: false
+            pkg_name: pipy
+            pipy_gui: "OFF"
           - runner: ubuntu-24.04-arm
             arch: aarch64
+            gui: false
+            pkg_name: pipy
+            pipy_gui: "OFF"
+          - runner: ubuntu-latest
+            arch: x86_64
+            gui: true
+            pkg_name: pipy-gui
+            pipy_gui: "ON"
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+            gui: true
+            pkg_name: pipy-gui
+            pipy_gui: "ON"
     steps:
       - uses: actions/checkout@v4
 
@@ -124,6 +140,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
         run: |
           docker build --target builder -t pipy-alpine-builder -f Dockerfile \
+            --build-arg PIPY_GUI=${{ matrix.pipy_gui }} \
             --build-arg COMMIT_TAG=${RELEASE_VERSION} \
             --build-arg COMMIT_ID=$(git log -1 --format=%H) \
             --build-arg COMMIT_DATE="$(git log -1 --format=%cD)" .
@@ -136,22 +153,23 @@ jobs:
         id: build
         env:
           RELEASE_VERSION: ${{ needs.set-release-version.outputs.release_version }}
+          PKG_NAME: ${{ matrix.pkg_name }}
         run: |
           mkdir -p buildroot/usr/local/bin
           cp bin/pipy buildroot/usr/local/bin/pipy
-          TARBALL="pipy-${RELEASE_VERSION}-alpine-${{ matrix.arch }}.tar.gz"
+          TARBALL="${PKG_NAME}-${RELEASE_VERSION}-alpine-${{ matrix.arch }}.tar.gz"
           tar zcf "${TARBALL}" -C buildroot usr/local/bin/pipy
           rm -rf buildroot
           echo "tarball=${TARBALL}" >> $GITHUB_OUTPUT
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-alpine-pipy-${{ matrix.arch }}
+          name: linux-alpine-${{ matrix.pkg_name }}-${{ matrix.arch }}
           path: ${{ steps.build.outputs.tarball }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: binary-alpine-pipy-${{ matrix.arch }}
+          name: binary-alpine-${{ matrix.pkg_name }}-${{ matrix.arch }}
           path: bin/pipy
 
   build-macos:
@@ -298,6 +316,18 @@ jobs:
             formats: "apk"
             binary_artifact: binary-alpine-pipy-aarch64
             upload_artifact: nfpm-alpine-pipy-aarch64
+            conflicts: ""
+          - arch: x86_64
+            pkg_name: pipy-gui
+            formats: "apk"
+            binary_artifact: binary-alpine-pipy-gui-x86_64
+            upload_artifact: nfpm-alpine-pipy-gui-x86_64
+            conflicts: ""
+          - arch: aarch64
+            pkg_name: pipy-gui
+            formats: "apk"
+            binary_artifact: binary-alpine-pipy-gui-aarch64
+            upload_artifact: nfpm-alpine-pipy-gui-aarch64
             conflicts: ""
           - arch: x86_64
             pkg_name: pipy-gui
@@ -537,6 +567,8 @@ jobs:
           # Linux musl (Alpine)
           ALPINE_X86=$(ff linux-alpine-pipy-x86_64 "*.tar.gz")
           ALPINE_ARM=$(ff linux-alpine-pipy-aarch64 "*.tar.gz")
+          ALPINE_X86_GUI=$(ff linux-alpine-pipy-gui-x86_64 "*.tar.gz")
+          ALPINE_ARM_GUI=$(ff linux-alpine-pipy-gui-aarch64 "*.tar.gz")
 
           # macOS
           MACOS_X86=$(ff macos-pipy-x86_64 "*.tar.gz")
@@ -571,6 +603,8 @@ jobs:
           # APK
           APK_X86=$(ff nfpm-alpine-pipy-x86_64 "*.apk")
           APK_ARM=$(ff nfpm-alpine-pipy-aarch64 "*.apk")
+          APK_X86_GUI=$(ff nfpm-alpine-pipy-gui-x86_64 "*.apk")
+          APK_ARM_GUI=$(ff nfpm-alpine-pipy-gui-aarch64 "*.apk")
 
           # IPK
           IPK_X86=$(ff nfpm-pipy-x86_64 "*.ipk")
@@ -583,12 +617,12 @@ jobs:
           cat > release_body.md << BODY
           **Download based on your OS:**
 
-          | OS | Arch | Download | Download (with GUI) | Note |
+          | OS | Arch | Download | Download (with GUI) | Require |
           |---|---|---|---|---|
           | :penguin: Linux Native Binary | x86_64 | $(link "$LINUX_X86") | $(link "$LINUX_X86_GUI") | glibc >= 2.39 (Ubuntu 24.04+) |
           | :penguin: Linux Native Binary | aarch64 | $(link "$LINUX_ARM") | $(link "$LINUX_ARM_GUI") | glibc >= 2.39 (Ubuntu 24.04+) |
-          | :penguin: Linux Native Binary (musl) | x86_64 | $(link "$ALPINE_X86") | - | musl libc |
-          | :penguin: Linux Native Binary (musl) | aarch64 | $(link "$ALPINE_ARM") | - | musl libc |
+          | :penguin: Linux Native Binary (musl) | x86_64 | $(link "$ALPINE_X86") | $(link "$ALPINE_X86_GUI") | musl libc |
+          | :penguin: Linux Native Binary (musl) | aarch64 | $(link "$ALPINE_ARM") | $(link "$ALPINE_ARM_GUI") | musl libc |
           | :apple: macOS | x86_64 | $(link "$MACOS_X86") | $(link "$MACOS_X86_GUI") | |
           | :apple: macOS | aarch64 | $(link "$MACOS_ARM") | $(link "$MACOS_ARM_GUI") | |
           | :robot: Android | arm64-v8a | $(link "$ANDROID") | - | |
@@ -599,8 +633,8 @@ jobs:
           | :penguin: Debian/Ubuntu (DEB) | aarch64 | $(link "$DEB_ARM") | $(link "$DEB_ARM_GUI") | glibc >= 2.39; Debian 13+ / Ubuntu 24.04+ |
           | :penguin: Arch Linux (Pacman) | x86_64 | $(link "$PAC_X86") | $(link "$PAC_X86_GUI") | glibc >= 2.39 |
           | :penguin: Arch Linux (Pacman) | aarch64 | $(link "$PAC_ARM") | $(link "$PAC_ARM_GUI") | glibc >= 2.39 |
-          | :penguin: Alpine Linux (APK) | x86_64 | $(link "$APK_X86") | - | musl libc (Alpine 3.19+) |
-          | :penguin: Alpine Linux (APK) | aarch64 | $(link "$APK_ARM") | - | musl libc (Alpine 3.19+) |
+          | :penguin: Alpine Linux (APK) | x86_64 | $(link "$APK_X86") | $(link "$APK_X86_GUI") | musl libc (Alpine 3.19+) |
+          | :penguin: Alpine Linux (APK) | aarch64 | $(link "$APK_ARM") | $(link "$APK_ARM_GUI") | musl libc (Alpine 3.19+) |
           | :penguin: OpenWrt (IPK) | x86_64 | $(link "$IPK_X86") | - | glibc >= 2.39 |
           | :penguin: OpenWrt (IPK) | aarch64 | $(link "$IPK_ARM") | - | glibc >= 2.39 |
           | :whale: Docker (Alpine) | x86_64 | $(link "$DOCKER_X86") | - | \`docker load\` |
