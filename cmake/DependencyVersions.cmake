@@ -6,7 +6,7 @@ set(DEP_EXPAT_VERSION      "R_2_7_4"     CACHE STRING "Expat version")
 set(DEP_LEVELDB_VERSION    "1.23"        CACHE STRING "LevelDB version")
 set(DEP_ZLIB_VERSION       "v1.3.2"      CACHE STRING "Zlib version")
 set(DEP_BROTLI_VERSION     "v1.2.0"      CACHE STRING "Brotli version")
-set(DEP_ASIO_VERSION       "asio-1-36-0" CACHE STRING "ASIO version")
+set(DEP_ASIO_VERSION       "asio-1-32-0" CACHE STRING "ASIO version")
 set(DEP_RAPIDJSON_VERSION  "v1.1.0"      CACHE STRING "RapidJSON version")
 
 set(DEP_LIBYAML_REPO    "https://github.com/yaml/libyaml.git"       CACHE STRING "LibYAML repository")
