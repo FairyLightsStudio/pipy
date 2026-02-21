@@ -348,7 +348,7 @@ if $BUILD_ANDROID; then
 
   export ANDROID_NDK_ROOT=$NDK
 
-  cd $PIPY_DIR/deps/openssl-3.4.0
+  cd $PIPY_DIR/deps/openssl-3.6.1
 
   mkdir -p android && cd android
 
@@ -370,7 +370,7 @@ if $BUILD_ANDROID; then
   cmake -DCMAKE_TOOLCHAIN_FILE=${NDK}/build/cmake/android.toolchain.cmake \
     -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-34 -DCMAKE_ANDROID_STL_TYPE=c++_static \
     -DANDROID_ALLOW_UNDEFINED_SYMBOLS=TRUE \
-    -DPIPY_OPENSSL=${PIPY_DIR}/deps/openssl-3.4.0/android/arm64-v8a  \
+    -DPIPY_OPENSSL=${PIPY_DIR}/deps/openssl-3.6.1/android/arm64-v8a  \
     -DPIPY_USE_SYSTEM_ZLIB=ON \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -DCMAKE_BUILD_TYPE=Release \
